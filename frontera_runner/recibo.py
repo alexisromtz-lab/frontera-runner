@@ -226,6 +226,15 @@ def _delta_de_ejecutor(nombre: str, antes: dict, despues: dict) -> dict:
         fila["hallazgos_de_head_sin_base"] = despues.get("hallazgos")
         return fila
 
+    if NO_MEDIDO in (antes["estado"], despues["estado"]):
+        # A hole is not an absence, and only one of the two is green. `NO_APLICABLE` on both
+        # sides is a measurement of absence: the instrument looked and there was nothing of its
+        # universe. `NO_MEDIDO` is the instrument being pointed at the subject and not answering
+        # -- a timeout, a crash, a garbage line. Both used to land on the same note, so a run
+        # that timed out on head read exactly like a tree with nothing to measure: green.
+        fila["atribuible"] = False
+        fila["nota"] = "MEDICION_NO_HECHA"
+        return fila
     fila["nota"] = "SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS"
     return fila
 
@@ -282,12 +291,14 @@ def comparar(base: dict, head: dict) -> dict:
     resueltos = sum(len(f["resueltos"]) for f in filas if f["atribuible"])
     perdidas = sum(1 for f in filas if f["nota"] == "PERDIDA_DE_MEDICION")
     ganancias = sum(1 for f in filas if f["nota"] == "SIN_BASE_MEDIDA")
+    no_hechas = sum(1 for f in filas if f["nota"] == "MEDICION_NO_HECHA")
     superficies = sum(1 for f in filas if f["nota"] == "SUPERFICIE_NUEVA")
     no_atribuibles = sum(1 for f in filas
                          if f["nota"] in ("IDENTIDAD_DEL_EJECUTOR_DISTINTA",
                                           "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS"))
     delta["resumen"] = {"nuevos": nuevos, "resueltos": resueltos,
                         "perdidas_de_medicion": perdidas,
+                        "mediciones_no_hechas": no_hechas,
                         "ganancias_de_medicion": ganancias,
                         "superficies_nuevas": superficies,
                         "no_atribuibles": no_atribuibles}
@@ -298,10 +309,11 @@ def comparar(base: dict, head: dict) -> dict:
 def salida_de_comparacion(delta: dict) -> tuple[int, str]:
     """The comparison's exit code, with the same precedence discipline as the single receipt.
 
-    `3` before anything: an unreadable receipt is not a verdict. Then `2` for the two ways the
-    comparison stops being about the pull request -- a measurement that disappeared, or a delta
-    produced by different bytes than the ones in base. Only then `1`, a finding that was not in
-    base, and `0`. A patch that merely bumps an instrument is therefore never silently green.
+    `3` before anything: an unreadable receipt is not a verdict. Then `2` for the three ways the
+    comparison stops being about the pull request -- a measurement that disappeared, an instrument
+    that never answered, or a delta produced by different bytes than the ones in base. Only then
+    `1`, a finding that was not in base, and `0`. A patch that merely bumps an instrument is
+    therefore never silently green.
     """
     if delta.get("verificacion") and not all(delta["verificacion"].values()):
         return 3, "SELLO_NO_RECOMPONE"
@@ -314,6 +326,8 @@ def salida_de_comparacion(delta: dict) -> tuple[int, str]:
     resumen = delta.get("resumen") or {}
     if resumen.get("perdidas_de_medicion"):
         return 2, "PERDIDA_DE_MEDICION"
+    if resumen.get("mediciones_no_hechas"):
+        return 2, "MEDICION_NO_HECHA"
     if resumen.get("no_atribuibles"):
         return 2, "DELTA_NO_ATRIBUIBLE"
     if resumen.get("nuevos"):

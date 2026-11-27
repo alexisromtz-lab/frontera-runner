@@ -196,6 +196,12 @@ The order of the checks is the contract, because each one makes the next meaning
    the row is `PERDIDA_DE_MEDICION` with the count of findings that went unmeasured, and the gate
    exits `2`. Reading that as "0 findings, all fixed" is the false green this repository exists to
    refuse.
+
+   The same holds when neither side finished: an instrument that answered `NO_MEDIDO` — a timeout,
+   a crash, a line nobody can parse — is a hole, not an absence. A row with a hole on either side
+   is `MEDICION_NO_HECHA` and the gate exits `2`, because two sides that never measured cannot
+   agree that nothing regressed. Both sides `NO_APLICABLE` is the other thing: a measurement of
+   absence, and still green.
 3. **An absence that the pull request fills is a surface the pull request creates.** When an
    instrument was `NO_APLICABLE` in base — "nothing of mine to measure" — and is `APLICABLE` in
    head, every finding on that new surface is the pull request's: the row is `SUPERFICIE_NUEVA`,
@@ -217,7 +223,7 @@ The order of the checks is the contract, because each one makes the next meaning
 |---|---|
 | `0` | `SIN_REGRESION` — no finding in head that was not in base |
 | `1` | `REGRESION` — at least one new finding, named, including findings on a surface this PR created |
-| `2` | `PERDIDA_DE_MEDICION`, `SIN_BASE_MEDIDA` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR |
+| `2` | `PERDIDA_DE_MEDICION`, `MEDICION_NO_HECHA`, `SIN_BASE_MEDIDA` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR |
 | `3` | the receipt could not be read as a receipt: seal, laws or schema |
 | `20` | bad invocation (a receipt path that does not parse) |
 

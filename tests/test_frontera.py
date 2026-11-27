@@ -398,6 +398,34 @@ class ConsumidorDiferencial(Base):
         self.assertEqual(delta["resumen"]["superficies_nuevas"], 0)
         self.assertEqual((delta["rc"], delta["veredicto"]), (0, "SIN_REGRESION"))
 
+    def test_un_instrumento_que_no_responde_no_es_verde(self):
+        """A hole is not an absence. `NO_MEDIDO` on either side stops the comparison being green.
+
+        Measured 27-Nov-2026 against the classifier as it stood: base `NO_APLICABLE` and head
+        `NO_MEDIDO` -- an instrument pointed at the subject that timed out -- landed on the same
+        note as two sides with nothing to measure, and the delta came out `0 SIN_REGRESION`.
+        A gate whose whole purpose is refusing the unmeasured green was returning one.
+        """
+        s = self.vacio(git_si=False)
+        base = self.medir(s)
+        self.assertEqual(self.ejecutor(base, "ts-py-anchor-guard")["estado"], runner.NO_APLICABLE)
+        s.escribir("src/engine.ts", "export const N = 3;\n")
+        s.escribir("ts-py-anchor.json", "{}")
+        # `tiempo_limite=0` is the timeout path on purpose: the instrument is admitted and never
+        # answers, which is `NO_MEDIDO` and not `NO_APLICABLE`.
+        head = recibo.construir(s.ruta, self.raiz, tiempo_limite=0)
+        self.assertEqual(self.ejecutor(head, "ts-py-anchor-guard")["razon"], "TIEMPO_AGOTADO")
+        delta = recibo.comparar(base, head)
+        fila = self.fila(delta, "ts-py-anchor-guard")
+        self.assertEqual(fila["nota"], "MEDICION_NO_HECHA")
+        self.assertIs(fila["atribuible"], False)
+        self.assertEqual(delta["resumen"]["mediciones_no_hechas"], 1)
+        self.assertEqual(delta["resumen"]["nuevos"], 0)
+        self.assertEqual((delta["rc"], delta["veredicto"]), (2, "MEDICION_NO_HECHA"))
+        # The other three never left the absence side, and that one is still a measurement.
+        self.assertEqual(self.fila(delta, "fiber-ast-lint")["nota"],
+                         "SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS")
+
     def test_un_byte_manipulado_es_rc_tres(self):
         base, head = self.par()
         manipulado = json.loads(recibo.canonico(head))
