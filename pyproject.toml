@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frontera-runner"
+version = "0.1.0"
+description = "One composite run of four frontier instruments, one deterministic receipt, one Markdown check per pull request"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Platino Labs" }]
+keywords = ["ci", "pull-request", "receipt", "audit", "determinism"]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.scripts]
+frontera-runner = "frontera_runner.cli:main"
+
+[tool.setuptools]
+packages = ["frontera_runner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:cacheprovider"
