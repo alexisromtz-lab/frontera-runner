@@ -117,7 +117,9 @@ jobs:
               gh api --method PATCH "repos/$REPO/issues/comments/$previo" \
                 -F body=@"salida/publicable.md" >/dev/null
             else
-              gh pr comment "$NUMERO" --body-file salida/publicable.md
+              # `--repo` is not decoration: the job's working directory holds two checkouts in
+              # `head/` and `base/`, so there is no repository at the root for `gh` to infer.
+              gh pr comment "$NUMERO" --repo "$REPO" --body-file salida/publicable.md
             fi
           fi
 
