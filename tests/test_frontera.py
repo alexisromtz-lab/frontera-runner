@@ -610,6 +610,43 @@ class AutonomiaDeCI(unittest.TestCase):
                                                   "pin": {"commit": "23dbf9a"}})
         self.assertEqual(juicio["estado"], "NO_VERIFICABLE")
 
+    def test_un_paquete_sin_raiz_mide_en_vez_de_abortar(self):
+        """The road without `--raiz` has no routes to scrub, and refusing them crashed the gate.
+
+        Measured 27-Nov-2026 in Actions: without `--raiz`, the reason for a package whose module
+        did not import was built by scrubbing `None`, which raised `TypeError` before the record
+        existed -- so no head receipt was written and the diff failed with RC 20 on a subject
+        that had never been measured.
+        """
+        caja = self.caja()
+        apoyo.crear_raiz(caja)
+        sujeto = apoyo.mixto()
+        self.addCleanup(sujeto.borrar)
+        instrumento = inst.POR_NOMBRE["fiber-ast-lint"]
+        triaje = {i.nombre: {"estado": runner.APLICABLE, "razon": None, "insumos": {}}
+                  for i in inst.INSTRUMENTOS}
+        with unittest.mock.patch.object(inst, "ubicacion_instalada",
+                                        return_value={"ruta": os.path.join(caja, "fiber-ast-lint",
+                                                                           "src"),
+                                                      "distribucion": "fiber-ast-lint",
+                                                      "version": "9.0.2"}):
+            with unittest.mock.patch.object(runner, "raiz_por_defecto",
+                                            return_value=os.path.join(caja, "nadie")):
+                registro = runner.ejecutar(instrumento, sujeto.ruta, None, triaje)
+        self.assertEqual(registro["modo_resolucion"], runner.PAQUETE)
+        self.assertEqual(registro["estado"], runner.NO_MEDIDO)
+        self.assertTrue((registro["razon"] or "").startswith("SALIDA_NO_JSON"), registro["razon"])
+
+    def test_la_ruta_del_paquete_no_entra_al_recibo(self):
+        """A traceback from `site-packages` names this machine, so it is scrubbed like a subject."""
+        limpio = runner._limpiar(
+            "File /opt/hostedtoolcache/Python/3.12/site-packages/x.py no anda; sujeto /tmp/s",
+            ("/tmp/s", "<sujeto>"), (None, "<herramientas>"),
+            ("/opt/hostedtoolcache/Python/3.12/site-packages", "<paquete>"))
+        self.assertNotIn("/opt/hostedtoolcache", limpio)
+        self.assertNotIn("/tmp/s", limpio)
+        self.assertIn("<paquete>", limpio)
+
     def test_las_leyes_aceptan_un_paquete_sin_commit_medido(self):
         base = {"ejecutores": {"x": {"estado": runner.APLICABLE, "version": "1.0",
                                      "huella": "sha256:" + "a" * 64, "commit": None,

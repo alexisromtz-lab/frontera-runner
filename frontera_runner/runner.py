@@ -60,10 +60,18 @@ def entorno_de(repo: str | None, base: Mapping[str, str] | None = None, subruta:
     return entorno
 
 
-def _limpiar(texto: str, sujeto: str, raiz: str) -> str:
-    """Keep absolute paths out of the receipt: they name a machine, not a subject."""
-    for ruta, token in ((os.path.abspath(sujeto), "<sujeto>"), (os.path.abspath(raiz), "<herramientas>")):
-        texto = texto.replace(ruta, token).replace(os.path.realpath(ruta), token)
+def _limpiar(texto: str, *rutas: tuple[str | None, str]) -> str:
+    """Keep absolute paths out of the receipt: they name a machine, not a subject.
+
+    A route may have no path at all -- an installed package has no checkout, and there is no
+    `--raiz` to name -- so an absent one is skipped instead of aborting the measurement. The
+    package root is scrubbed too: a traceback from `site-packages` carries the runner's own
+    interpreter path, which would make the same tree seal differently on two machines.
+    """
+    for ruta, token in rutas:
+        if not ruta:
+            continue
+        texto = texto.replace(os.path.abspath(ruta), token).replace(os.path.realpath(ruta), token)
     return texto[:_RECORTE_MENSAJE]
 
 
@@ -127,7 +135,10 @@ def resolver(instrumento: inst.Instrumento, raiz: str | None = None,
             "commit": None,
             # The located directory *is* the package root, so the digest is taken there: the same
             # bytes installed and checked out under `src/` share relative paths and seal equally.
-            "huella": inst.huella_de_arbol(ubicacion["ruta"])}
+            "huella": inst.huella_de_arbol(ubicacion["ruta"]),
+            # Scrubbed out of any instrument message, never published: it names this machine's
+            # interpreter, and a receipt that carries it seals differently on another one.
+            "ruta_de_paquete": ubicacion["ruta"]}
 
 
 def _juzgar_pin(instrumento: inst.Instrumento, resolucion: Mapping) -> dict | None:
@@ -181,6 +192,8 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str | None, triaj
     if resolucion["repo"] is None and resolucion.get("razon"):
         return _sin_ejecutar(instrumento, NO_EJECUTADO, resolucion["razon"], resolucion)
     repo = resolucion["repo"]
+    rutas_a_limpiar = ((sujeto, "<sujeto>"), (raiz or repo, "<herramientas>"),
+                       (resolucion.get("ruta_de_paquete"), "<paquete>"))
 
     manifiesto = decision["insumos"].get("manifiesto")
     argv = [sys.executable, "-m", *instrumento.comando(manifiesto)]
@@ -201,9 +214,8 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str | None, triaj
         registro.update({"estado": NO_MEDIDO, "razon": "TIEMPO_AGOTADO", "rc": None})
         return registro
     except (OSError, subprocess.SubprocessError) as fallo:
-        registro.update({"estado": NO_MEDIDO, "razon": _limpiar(f"NO_ARRANCO: {fallo}", sujeto,
-                                                                raiz or repo),
-                         "rc": None})
+        razon = _limpiar(f"NO_ARRANCO: {fallo}", *rutas_a_limpiar)
+        registro.update({"estado": NO_MEDIDO, "razon": razon, "rc": None})
         return registro
 
     crudo = hecho.stdout or b""
@@ -215,8 +227,8 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str | None, triaj
         registro.update({"estado": NO_APLICABLE, "razon": f"EL_INSTRUMENTO_NO_VIO_SUJETO: {etiqueta}"})
         return registro
     if clase == NO_MEDIDO:
-        detalle = _limpiar((hecho.stderr or b"").decode("utf-8", "replace").strip(), sujeto,
-                           raiz or repo)
+        detalle = _limpiar((hecho.stderr or b"").decode("utf-8", "replace").strip(),
+                           *rutas_a_limpiar)
         razon = f"{etiqueta}" if not detalle else f"{etiqueta}: {detalle}"
         registro.update({"estado": NO_MEDIDO, "razon": razon})
         return registro
@@ -227,7 +239,7 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str | None, triaj
         # An instrument that exits on a contract code and prints no JSON has crashed; its last
         # stderr line is the only evidence of why, so it travels with the state.
         cola = [l for l in _limpiar((hecho.stderr or b"").decode("utf-8", "replace"),
-                                    sujeto, raiz or repo).splitlines() if l.strip()]
+                                    *rutas_a_limpiar).splitlines() if l.strip()]
         razon = "SALIDA_NO_JSON" + (f": {cola[-1][:200]}" if cola else "")
         registro.update({"estado": NO_MEDIDO, "razon": razon})
         return registro
