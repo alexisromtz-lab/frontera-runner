@@ -1,0 +1,19 @@
+{
+  "instrumentos": {
+    "git-complement-audit": {
+      "commit": "1c73546fa",
+      "nota": "age stratification of refs outside HEAD"
+    },
+    "fiber-ast-lint": {
+      "commit": "23dbf9a",
+      "nota": "the Lote 20 line: 753a951 belongs to its own tab and is not consumed here"
+    },
+    "test-ordinal-ratchet": {
+      "commit": "36e8b27"
+    },
+    "ts-py-anchor-guard": {
+      "commit": "02e8fe3",
+      "nota": "0.9.4: the operators are read and the map crosses the hop"
+    }
+  }
+}

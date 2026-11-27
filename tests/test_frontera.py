@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -190,14 +191,27 @@ class ContratoDeRC(Base):
 
     def test_hallazgos_y_denominador_se_leen_del_payload(self):
         s = self.sujeto()
+        dos = apoyo.HALLAZGOS["fiber-ast-lint"][0]
         s.responder("fiber-ast-lint", rc=1, salida={
-            "archivos": 3, "for_medidos": 5, "candidatos": [{"a": 1}, {"b": 2}]})
+            "archivos": 3, "for_medidos": 5,
+            "candidatos": [dos, dict(dos, qualname="g")]})
         r = self.medir(s)
         registro = self.ejecutor(r, "fiber-ast-lint")
         self.assertEqual(registro["estado"], runner.APLICABLE)
         self.assertEqual(registro["hallazgos"], 2)
         self.assertEqual(registro["denominador"], {"archivos_python": 3, "sitios_medidos": 5})
         self.assertEqual(recibo.salida_global(r), (1, "CON_HALLAZGOS"))
+
+    def test_contador_sin_nombres_no_es_un_numero_que_se_pueda_restar(self):
+        """A count the runner cannot break into names is a number no diff can act on."""
+        s = self.sujeto()
+        s.responder("fiber-ast-lint", rc=1, salida={"archivos": 1, "for_medidos": 1,
+                                                    "candidatos": [{"a": 1}]})
+        registro = self.ejecutor(self.medir(s), "fiber-ast-lint")
+        self.assertEqual(registro["estado"], runner.NO_MEDIDO)
+        self.assertEqual(registro["razon"], "SALIDA_SIN_IDENTIDADES")
+        self.assertIsNone(registro["hallazgos"])
+        self.assertEqual(registro["hallazgos_declarados"], 1)
 
     def test_instrumento_ausente(self):
         caja = tempfile.mkdtemp(prefix="frontera-parcial-")
@@ -293,8 +307,8 @@ class LineaDeComandos(Base):
     def test_sujeto_limpio_y_con_hallazgos(self):
         s = self.sujeto()
         self.assertEqual(self.correr(s.ruta, "--raiz", self.raiz)[0], 0)
-        s.responder("fiber-ast-lint", rc=1, salida={"archivos": 1, "for_medidos": 1,
-                                                    "candidatos": [1]})
+        s.responder("fiber-ast-lint", rc=1,
+                    salida=apoyo.un_hallazgo("fiber-ast-lint"))
         self.assertEqual(self.correr(s.ruta, "--raiz", self.raiz)[0], 1)
 
     def test_sin_superficie_es_dos(self):
@@ -319,6 +333,327 @@ class LineaDeComandos(Base):
 
     def test_self_test(self):
         self.assertEqual(cli.main(["--self-test"]), 0)
+
+
+class ConsumidorDiferencial(Base):
+    """H0_Consumidor_Diferencial: the seal is a gate only when something recomputes it and diffs.
+
+    Every case here is a pull request: base is measured, the fake answers change the way a patch
+    would change a real subject, and head is measured again over the same runner.
+    """
+
+    def par(self, **respuestas):
+        """Base measured with the default answers, head measured after `respuestas`."""
+        s = self.sujeto()
+        base = self.medir(s)
+        for nombre, cfg in respuestas.items():
+            s.responder(nombre, **cfg)
+        return base, self.medir(s)
+
+    def fila(self, delta, nombre):
+        return delta["instrumentos"][nombre]
+
+    def test_dos_recibos_iguales_no_son_regresion(self):
+        base, head = self.par()
+        delta = recibo.comparar(base, head)
+        self.assertEqual(delta["resumen"]["nuevos"], 0)
+        self.assertEqual(delta["resumen"]["resueltos"], 0)
+        self.assertEqual((delta["rc"], delta["veredicto"]), (0, "SIN_REGRESION"))
+
+    def test_un_byte_manipulado_es_rc_tres(self):
+        base, head = self.par()
+        manipulado = json.loads(recibo.canonico(head))
+        self.assertTrue(recibo.verificar(manipulado))
+        manipulado["ejecutores"]["fiber-ast-lint"]["hallazgos"] += 1
+        delta = recibo.comparar(base, manipulado)
+        self.assertFalse(delta["verificacion"]["head"])
+        self.assertEqual((delta["rc"], delta["veredicto"]), (3, "SELLO_NO_RECOMPONE"))
+        self.assertIn("NO RECOMPONE", render.markdown_diff(delta))
+
+    def test_hallazgo_preexistente_no_es_regresion(self):
+        s = self.sujeto()
+        s.responder("fiber-ast-lint", rc=1, salida=apoyo.un_hallazgo("fiber-ast-lint"))
+        base = self.medir(s)
+        head = self.medir(s)
+        delta = recibo.comparar(base, head)
+        self.assertEqual(len(self.fila(delta, "fiber-ast-lint")["nuevos"]), 0)
+        self.assertEqual(delta["rc"], 0)
+
+    def test_hallazgo_nuevo_en_head_es_rc_uno_y_se_nombra(self):
+        base, head = self.par(**{"fiber-ast-lint": dict(
+            rc=1, salida=apoyo.un_hallazgo("fiber-ast-lint"))})
+        delta = recibo.comparar(base, head)
+        fila = self.fila(delta, "fiber-ast-lint")
+        self.assertEqual(len(fila["nuevos"]), 1)
+        self.assertIn("src/fibra.py", fila["nuevos"][0])
+        self.assertEqual((delta["rc"], delta["veredicto"]), (1, "REGRESION"))
+        self.assertIn("src/fibra.py", render.markdown_diff(delta))
+
+    def test_resuelto_deja_el_veredicto_en_cero(self):
+        s = self.sujeto()
+        s.responder("fiber-ast-lint", rc=1, salida=apoyo.un_hallazgo("fiber-ast-lint"))
+        base = self.medir(s)
+        s.responder("fiber-ast-lint", rc=0, salida=apoyo.SALIDAS["fiber-ast-lint"])
+        delta = recibo.comparar(base, self.medir(s))
+        self.assertEqual(len(self.fila(delta, "fiber-ast-lint")["resueltos"]), 1)
+        self.assertEqual(delta["rc"], 0)
+
+    def test_perdida_de_medicion_no_se_lee_como_resuelto(self):
+        """The trap: delete the anchor manifest and the guard stops counting. That is not a fix."""
+        s = self.sujeto()
+        s.responder("ts-py-anchor-guard", rc=1, salida=apoyo.un_hallazgo("ts-py-anchor-guard"))
+        s.responder("fiber-ast-lint", rc=1, salida=apoyo.un_hallazgo("fiber-ast-lint"))
+        base = self.medir(s)
+        s.responder("ts-py-anchor-guard", rc=2)
+        delta = recibo.comparar(base, self.medir(s))
+        fila = self.fila(delta, "ts-py-anchor-guard")
+        self.assertEqual(fila["nota"], "PERDIDA_DE_MEDICION")
+        self.assertEqual(fila["resueltos"], [])
+        self.assertEqual(fila["nuevos"], [])
+        self.assertEqual((delta["rc"], delta["veredicto"]), (2, "PERDIDA_DE_MEDICION"))
+
+    def test_el_guardián_reconcilia_por_partición_de_pares(self):
+        """Its counter counts pars, not anchors: one par with two broken anchors is one."""
+        s = self.sujeto()
+        par = {"nombre": "vista", "rc": 1,
+               "anclas": [{"ancla": "ALTO", "ok": False}, {"ancla": "BAJO", "ok": False}],
+               "no_evaluables": []}
+        salida = dict(apoyo.SALIDAS["ts-py-anchor-guard"], pares=[par],
+                      totales={"pares": 1, "comparadas": 1, "declaradas": 2, "divergen": 1,
+                               "no_medidos": 0})
+        s.responder("ts-py-anchor-guard", rc=1, salida=salida)
+        registro = self.ejecutor(self.medir(s), "ts-py-anchor-guard")
+        self.assertEqual(registro["estado"], runner.APLICABLE)
+        self.assertEqual(registro["hallazgos"], 2)
+        self.assertEqual(registro["hallazgos_declarados"], 1)
+        self.assertEqual(registro["unidad_declarada"], "par")
+        self.assertTrue(registro["identidades_reconcilian"])
+
+    def test_un_par_limpio_que_nombra_un_hallazgo_no_reconcilia(self):
+        s = self.sujeto()
+        par = {"nombre": "vista", "rc": 0, "anclas": [{"ancla": "ALTO", "ok": False}],
+               "no_evaluables": []}
+        salida = dict(apoyo.SALIDAS["ts-py-anchor-guard"], pares=[par])
+        s.responder("ts-py-anchor-guard", rc=0, salida=salida)
+        registro = self.ejecutor(self.medir(s), "ts-py-anchor-guard")
+        self.assertEqual(registro["estado"], runner.NO_MEDIDO)
+        self.assertEqual(registro["razon"], "IDENTIDADES_NO_RECONCILIAN")
+
+    def test_delta_producido_por_otra_version_no_es_del_pr(self):
+        caja = tempfile.mkdtemp(prefix="frontera-otra-version-")
+        try:
+            otra = apoyo.crear_raiz(os.path.join(caja, "v2"),
+                                    versiones={"fiber-ast-lint": "9.9.9"})
+            s = self.sujeto()
+            base = self.medir(s)
+            s.responder("fiber-ast-lint", rc=1, salida=apoyo.un_hallazgo("fiber-ast-lint"))
+            head = recibo.construir(s.ruta, otra)
+            delta = recibo.comparar(base, head)
+            fila = self.fila(delta, "fiber-ast-lint")
+            self.assertEqual(fila["nota"], "IDENTIDAD_DEL_EJECUTOR_DISTINTA")
+            self.assertFalse(fila["atribuible"])
+            self.assertEqual(delta["resumen"]["nuevos"], 0)
+            self.assertEqual((delta["rc"], delta["veredicto"]), (2, "DELTA_NO_ATRIBUIBLE"))
+        finally:
+            import shutil
+
+            shutil.rmtree(caja, ignore_errors=True)
+
+    def test_esquemas_distintos_no_se_comparan(self):
+        """A v1 receipt is re-sealed by hand here: the point is that its seal is good and it
+        still cannot be differenced. A v1 body with a v2 seal is caught one step earlier."""
+        base, head = self.par()
+
+        def sellar_v1(cuerpo):
+            viejo = json.loads(recibo.canonico(cuerpo))
+            viejo["schema"] = 1
+            sin_sello = {k: v for k, v in viejo.items() if k != "sello"}
+            viejo["sello"] = recibo.sha256_de(recibo.canonico(sin_sello).encode("utf-8"))
+            self.assertTrue(recibo.verificar(viejo))
+            return viejo
+
+        solo_head = recibo.comparar(base, sellar_v1(head))
+        self.assertEqual((solo_head["rc"], solo_head["veredicto"]), (3, "ESQUEMAS_DISTINTOS"))
+        ambos = recibo.comparar(sellar_v1(base), sellar_v1(head))
+        self.assertEqual((ambos["rc"], ambos["veredicto"]), (3, "RECIBO_NO_COMPARABLE"))
+        manipulado = json.loads(recibo.canonico(head))
+        manipulado["schema"] = 1
+        self.assertEqual(recibo.comparar(base, manipulado)["veredicto"], "SELLO_NO_RECOMPONE")
+
+    def test_markdown_del_diff_cabe_bajo_el_techo(self):
+        muchos = [dict(apoyo.HALLAZGOS["git-complement-audit"][0], path=f"src/h{i}.py")
+                  for i in range(400)]
+        salida = dict(apoyo.un_hallazgo("git-complement-audit"), findings=muchos,
+                      counts={"ORPHAN_CODE": 400, "ORPHAN_SECRET_RISK": 0,
+                              "HISTORY_SECRET_RISK": 0})
+        base, head = self.par(**{"git-complement-audit": dict(rc=1, salida=salida)})
+        delta = recibo.comparar(base, head)
+        self.assertEqual(delta["resumen"]["nuevos"], 400)
+        texto = render.markdown_diff(delta)
+        self.assertLess(len(texto), render.TOPE)
+        self.assertIn("más en el recibo JSON", texto)
+
+    def test_el_comando_diff_devuelve_el_rc_del_veredicto(self):
+        base, head = self.par(**{"fiber-ast-lint": dict(
+            rc=1, salida=apoyo.un_hallazgo("fiber-ast-lint"))})
+        with tempfile.TemporaryDirectory() as caja:
+            ruta_base = recibo.escribir(base, os.path.join(caja, "base.json"))
+            ruta_head = recibo.escribir(head, os.path.join(caja, "head.json"))
+            ruta_md = os.path.join(caja, "diff.md")
+            guardado = sys.stdout
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+            try:
+                rc = cli.main(["diff", "--base", ruta_base, "--head", ruta_head, "--md", ruta_md])
+            finally:
+                sys.stdout.close()
+                sys.stdout = guardado
+            self.assertEqual(rc, 1)
+            with open(ruta_md, encoding="utf-8") as f:
+                self.assertIn("REGRESION", f.read())
+
+    def test_diff_sin_recibo_legible_es_aridad(self):
+        with tempfile.TemporaryDirectory() as caja:
+            basura = os.path.join(caja, "basura.json")
+            with open(basura, "w", encoding="utf-8") as f:
+                f.write("no soy json")
+            guardado = sys.stderr
+            sys.stderr = open(os.devnull, "w", encoding="utf-8")
+            try:
+                rc = cli.main(["diff", "--base", basura, "--head", basura])
+            finally:
+                sys.stderr.close()
+                sys.stderr = guardado
+            self.assertEqual(rc, cli.RC_ARIDAD)
+
+
+class AutonomiaDeCI(unittest.TestCase):
+    """H0_Autonomia_CI_Workflow and H0_Invarianza_Git_Vivo: outside this repository's parents.
+
+    A consumer repository has no four sibling clones to point `--raiz` at, and a runner that only
+    works beside its own colleagues is not a check anybody can install. These tests measure the
+    two properties that make it installable, without a network: the resolution modes, and the
+    dependence of the seal on paths rather than on the bytes.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cajas = []
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+
+        for caja in cls.cajas:
+            shutil.rmtree(caja, ignore_errors=True)
+
+    def caja(self, prefijo="frontera-ci-"):
+        ruta = tempfile.mkdtemp(prefix=prefijo)
+        self.cajas.append(ruta)
+        return ruta
+
+    def test_sin_raiz_el_paquete_instalado_es_una_resolucion(self):
+        """`--raiz` absent means "find it": an installed package is found, not refused."""
+        caja = self.caja()
+        apoyo.crear_raiz(caja)
+        instrumento = inst.POR_NOMBRE["fiber-ast-lint"]
+        with unittest.mock.patch.object(inst, "ubicacion_instalada",
+                                        return_value={"ruta": os.path.join(caja, "fiber-ast-lint",
+                                                                           "src"),
+                                                      "distribucion": "fiber-ast-lint",
+                                                      "version": "9.0.2"}):
+            with unittest.mock.patch.object(runner, "raiz_por_defecto",
+                                            return_value=os.path.join(caja, "nadie")):
+                resolucion = runner.resolver(instrumento)
+        self.assertEqual(resolucion["modo"], runner.PAQUETE)
+        self.assertIsNone(resolucion["repo"])
+        self.assertEqual(resolucion["procedencia"], runner.PAQUETE)
+        self.assertEqual(resolucion["version"], "9.0.2")
+        self.assertIsNone(resolucion["commit"])
+        self.assertRegex(resolucion["huella"], r"^sha256:[0-9a-f]{64}$")
+
+    def test_un_paquete_instalado_no_lleva_pythonpath(self):
+        """Setting one would shadow the installation with whatever sits beside this checkout."""
+        entorno = runner.entorno_de(None)
+        self.assertNotIn("PYTHONPATH", entorno)
+        self.assertEqual(entorno["PYTHONHASHSEED"], "0")
+
+    def test_raiz_explicita_no_sustituye_por_el_paquete_instalado(self):
+        """A promise about where the instruments are is not renegotiated behind the caller."""
+        caja = self.caja()
+        instrumento = inst.POR_NOMBRE["fiber-ast-lint"]
+        with unittest.mock.patch.object(inst, "ubicacion_instalada",
+                                        side_effect=AssertionError("no debe sondearse")):
+            resolucion = runner.resolver(instrumento, os.path.join(caja, "vacio"))
+        self.assertIsNone(resolucion["repo"])
+        self.assertEqual(resolucion["razon"], "INSTRUMENTO_AUSENTE")
+
+    def test_un_pin_abreviado_verifica_el_commit_que_nombra(self):
+        """A declaration is written the way `git rev-parse` reads it, or it verifies nothing."""
+        instrumento = inst.POR_NOMBRE["git-complement-audit"]
+        resolucion = {"version": "1.5.0", "commit": "1c73546fa" + "b" * 31,
+                      "pin": {"commit": "1c73546fa", "version": "1.5.0"}}
+        juicio = runner._juzgar_pin(instrumento, resolucion)
+        self.assertEqual(juicio["estado"], "VERIFICADO")
+        otro = dict(resolucion, commit="9" * 40)
+        self.assertEqual(runner._juzgar_pin(instrumento, otro)["estado"], "DIVERGE")
+        for corto in ("1c", "1c7354"):
+            flojo = dict(resolucion, pin={"commit": corto})
+            self.assertEqual(runner._juzgar_pin(instrumento, flojo)["estado"], "DIVERGE", corto)
+        # An absent declaration is not a failed one: same word as an installation with no history.
+        vacio = dict(resolucion, pin={"commit": ""})
+        self.assertEqual(runner._juzgar_pin(instrumento, vacio)["estado"], "NO_VERIFICABLE")
+
+    def test_una_instalacion_no_puede_verificar_un_commit_declarado(self):
+        """`NO_VERIFICABLE` is its own word: an installation has no history to read."""
+        instrumento = inst.POR_NOMBRE["fiber-ast-lint"]
+        juicio = runner._juzgar_pin(instrumento, {"version": "0.5.0", "commit": None,
+                                                  "pin": {"commit": "23dbf9a"}})
+        self.assertEqual(juicio["estado"], "NO_VERIFICABLE")
+
+    def test_las_leyes_aceptan_un_paquete_sin_commit_medido(self):
+        base = {"ejecutores": {"x": {"estado": runner.APLICABLE, "version": "1.0",
+                                     "huella": "sha256:" + "a" * 64, "commit": None,
+                                     "procedencia": runner.PAQUETE, "hallazgos": 0,
+                                     "huellas_de_hallazgo": [], "identidades_reconcilian": True,
+                                     "razon": "limpio"}},
+                "denominador": {}}
+        self.assertTrue(recibo.leyes(base)["identidad_de_ejecutores"])
+        sin_huella = json.loads(json.dumps(base))
+        sin_huella["ejecutores"]["x"]["huella"] = None
+        self.assertFalse(recibo.leyes(sin_huella)["identidad_de_ejecutores"])
+
+    def test_dos_rutas_y_dos_raices_producen_el_mismo_sello(self):
+        """H0_Invarianza_Git_Vivo: the digest depends on the bytes, not on where they landed."""
+        caja = self.caja()
+        origen = os.path.join(caja, "origen")
+        apoyo.crear_raiz(os.path.join(caja, "herramientas-a"))
+        apoyo.crear_raiz(os.path.join(caja, "ruta", "mucho", "mas", "larga", "herramientas-b"))
+        os.makedirs(origen)
+        apoyo.git(origen, "init", "-q", ".")
+        for relativa, contenido in (("pkg/core.py", "def f(x):\n    return x\n"),
+                                    ("tests/test_core.py", "import unittest\n"),
+                                    ("src/engine.ts", "export const N = 3;\n"),
+                                    ("ts-py-anchor.json", "{}")):
+            destino = os.path.join(origen, relativa)
+            os.makedirs(os.path.dirname(destino), exist_ok=True)
+            with open(destino, "w", encoding="utf-8") as f:
+                f.write(contenido)
+        apoyo.git(origen, "add", "-A")
+        apoyo.git(origen, "-c", "user.email=s@s", "-c", "user.name=s", "commit", "-qm", "sujeto")
+        apoyo.git(origen, "branch", "dev/viva")
+        corto = os.path.join(caja, "a")
+        largo = os.path.join(caja, "una", "ruta", "bastante", "mas", "profunda", "b")
+        for destino in (corto, largo):
+            apoyo.git(caja, "clone", "-q", origen, destino)
+
+        primero = recibo.construir(corto, os.path.join(caja, "herramientas-a"))
+        segundo = recibo.construir(largo, os.path.join(caja, "ruta", "mucho", "mas", "larga",
+                                                      "herramientas-b"))
+        self.assertTrue(recibo.verificar(primero) and recibo.verificar(segundo))
+        self.assertEqual(recibo.canonico(primero), recibo.canonico(segundo))
+        self.assertEqual(recibo.salida_global(primero), recibo.salida_global(segundo))
+        for ruta in (corto, largo, caja):
+            self.assertNotIn(ruta, recibo.canonico(primero))
 
 
 class Huellas(unittest.TestCase):

@@ -27,6 +27,11 @@ NO_APLICABLE = "NO_APLICABLE"
 NO_MEDIDO = "NO_MEDIDO"
 NO_EJECUTADO = "NO_EJECUTADO"
 
+#: How the bytes that ran were found. Both are legitimate; they are not interchangeable, because
+#: only a checkout has a repository to read a commit from.
+CLON = "CLON"
+PAQUETE = "PAQUETE"
+
 #: Variables the instruments may read. Everything else is dropped, so two machines that export
 #: different things still produce the same receipt.
 ENTORNO_PERMITIDO = ("PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "SYSTEMROOT")
@@ -40,12 +45,18 @@ TIEMPO_LIMITE_POR_DEFECTO = 300
 _RECORTE_MENSAJE = 400
 
 
-def entorno_de(repo: str, base: Mapping[str, str] | None = None, subruta: str = "") -> dict:
-    """The environment one instrument runs in: allowlist, plus its package on `PYTHONPATH`."""
+def entorno_de(repo: str | None, base: Mapping[str, str] | None = None, subruta: str = "") -> dict:
+    """The environment one instrument runs in: allowlist, plus its package on `PYTHONPATH`.
+
+    `repo=None` means the instrument is installed in this interpreter's environment: there is no
+    checkout to put on the path, and setting one would shadow the installation with whatever
+    happens to sit beside this repository on the machine that runs it.
+    """
     base = os.environ if base is None else base
     entorno = {k: base[k] for k in ENTORNO_PERMITIDO if k in base}
     entorno.update(ENTORNO_FIJO)
-    entorno["PYTHONPATH"] = os.path.join(repo, subruta) if subruta else repo
+    if repo is not None:
+        entorno["PYTHONPATH"] = os.path.join(repo, subruta) if subruta else repo
     return entorno
 
 
@@ -65,31 +76,122 @@ def _registro_base(instrumento: inst.Instrumento, manifiesto: str | None = None)
     }
 
 
-def _sin_ejecutar(instrumento: inst.Instrumento, estado: str, razon: str) -> dict:
+def _sin_ejecutar(instrumento: inst.Instrumento, estado: str, razon: str,
+                  resolucion: Mapping | None = None) -> dict:
     registro = _registro_base(instrumento)
     registro.update({"estado": estado, "razon": razon, "rc": None, "version": None,
-                     "commit": None, "huella": None, "salida_sha256": None,
-                     "denominador": {}, "hallazgos": None})
+                     "commit": None, "huella": None, "procedencia": None, "pin": None,
+                     "salida_sha256": None, "denominador": {}, "hallazgos": None,
+                     "hallazgos_declarados": None, "unidad_declarada": instrumento.unidad,
+                     "huellas_de_hallazgo": None, "identidades_reconcilian": None})
+    if resolucion:
+        registro.update({k: resolucion.get(k) for k in
+                         ("version", "commit", "huella", "procedencia", "pin")})
     return registro
 
 
-def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str, triaje: Mapping,
+def resolver(instrumento: inst.Instrumento, raiz: str | None = None,
+             pines: Mapping | None = None) -> dict:
+    """Find the instrument and identify the bytes that will run.
+
+    Two routes, and the difference between them is a promise. An explicit `--raiz` means "measure
+    exactly these checkouts": a missing sibling is then `INSTRUMENTO_AUSENTE`, because silently
+    substituting an installed copy would answer about a tree nobody asked about. Without `--raiz`
+    the sibling convention is tried first and the installed package second, which is the only
+    route a consumer repository has -- it has no four sibling clones to point at.
+
+    A pin is a declaration, never a measurement: an installed package has no repository to read a
+    commit from, so the declared commit is published as declared and a mismatch with the version
+    that is installed is reported as a mismatch instead of being smoothed over.
+    """
+    pin = None
+    if pines and instrumento.nombre in pines:
+        pin = dict(pines[instrumento.nombre])
+    if raiz is not None:
+        repo = os.path.join(raiz, instrumento.nombre)
+        if not os.path.isdir(repo):
+            return {"modo": CLON, "repo": None, "razon": "INSTRUMENTO_AUSENTE", "pin": pin}
+        return {"modo": CLON, "repo": repo, "procedencia": CLON, "pin": pin,
+                **inst.identificar(repo, instrumento)}
+
+    vecino = os.path.join(raiz_por_defecto(), instrumento.nombre)
+    if os.path.isdir(vecino):
+        return {"modo": CLON, "repo": vecino, "procedencia": CLON, "pin": pin,
+                **inst.identificar(vecino, instrumento)}
+
+    ubicacion = inst.ubicacion_instalada(instrumento.modulo.split(".")[0])
+    if ubicacion is None:
+        return {"modo": PAQUETE, "repo": None, "razon": "INSTRUMENTO_AUSENTE", "pin": pin}
+    return {"modo": PAQUETE, "repo": None, "procedencia": PAQUETE, "pin": pin,
+            "version": ubicacion.get("version"),
+            "commit": None,
+            # The located directory *is* the package root, so the digest is taken there: the same
+            # bytes installed and checked out under `src/` share relative paths and seal equally.
+            "huella": inst.huella_de_arbol(ubicacion["ruta"])}
+
+
+def _juzgar_pin(instrumento: inst.Instrumento, resolucion: Mapping) -> dict | None:
+    """Compare the declaration with what is installed. Absent pin, absent evidence.
+
+    A declared commit cannot be verified against an installation -- that is the whole reason it
+    is published as declared -- so only the version is checked, and an unverifiable pin is
+    reported as `NO_VERIFICABLE`, which is not the same word as `VERIFICADO`.
+    """
+    pin = resolucion.get("pin")
+    if not pin:
+        return None
+    declarado = (pin.get("version"), pin.get("commit"))
+    medido = (resolucion.get("version"), resolucion.get("commit"))
+    veredicto = {"version_declarada": declarado[0], "commit_declarado": declarado[1],
+                 "version_medida": medido[0], "commit_medido": medido[1]}
+    if declarado[0] and medido[0] and str(declarado[0]) != str(medido[0]):
+        veredicto.update({"estado": "DIVERGE", "razon": "LA_VERSION_INSTALADA_NO_ES_LA_DECLARADA"})
+    elif declarado[1] and medido[1]:
+        vale = _pin_apunta_a(declarado[1], medido[1])
+        veredicto.update({"estado": "VERIFICADO" if vale else "DIVERGE",
+                          "razon": None if vale else "EL_COMMIT_MEDIDO_NO_ES_EL_DECLARADO"})
+    else:
+        veredicto.update({"estado": "NO_VERIFICABLE",
+                          "razon": "LA_INSTALACION_NO_DECLARA_COMMIT"})
+    return veredicto
+
+
+def _pin_apunta_a(declarado: str, medido: str) -> bool:
+    """A declared commit may be abbreviated, exactly as `git rev-parse` reads one.
+
+    Anything shorter than seven characters is not an identifier in this repository, so it is not
+    honoured as one here either: a two-character prefix matches everything and proves nothing.
+    """
+    declarado, medido = str(declarado).strip().lower(), str(medido).strip().lower()
+    if len(declarado) < 7:
+        return False
+    return medido.startswith(declarado)
+
+
+def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str | None, triaje: Mapping,
              tiempo_limite: int = TIEMPO_LIMITE_POR_DEFECTO,
-             base_entorno: Mapping[str, str] | None = None) -> dict:
+             base_entorno: Mapping[str, str] | None = None,
+             pines: Mapping | None = None) -> dict:
     """One instrument, one subprocess, one record. Never raises on a bad subject."""
     decision = triaje[instrumento.nombre]
     if decision["estado"] == NO_APLICABLE:
         return _sin_ejecutar(instrumento, NO_APLICABLE, decision["razon"])
 
-    repo = os.path.join(raiz, instrumento.nombre)
-    if not os.path.isdir(repo):
-        return _sin_ejecutar(instrumento, NO_EJECUTADO, "INSTRUMENTO_AUSENTE")
+    resolucion = resolver(instrumento, raiz, pines)
+    if resolucion["repo"] is None and resolucion.get("razon"):
+        return _sin_ejecutar(instrumento, NO_EJECUTADO, resolucion["razon"], resolucion)
+    repo = resolucion["repo"]
 
     manifiesto = decision["insumos"].get("manifiesto")
     argv = [sys.executable, "-m", *instrumento.comando(manifiesto)]
     registro = _registro_base(instrumento, manifiesto)
-    registro.update(inst.identificar(repo, instrumento))
-    registro.update({"denominador": {}, "hallazgos": None, "salida_sha256": None})
+    registro.update({k: resolucion.get(k) for k in
+                     ("version", "commit", "huella", "procedencia")})
+    registro.update({"pin": _juzgar_pin(instrumento, resolucion),
+                     "modo_resolucion": resolucion["modo"],
+                     "denominador": {}, "hallazgos": None, "hallazgos_declarados": None,
+                     "unidad_declarada": instrumento.unidad, "huellas_de_hallazgo": None,
+                     "identidades_reconcilian": None, "salida_sha256": None})
 
     try:
         hecho = subprocess.run(argv, cwd=sujeto,
@@ -99,7 +201,8 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str, triaje: Mapp
         registro.update({"estado": NO_MEDIDO, "razon": "TIEMPO_AGOTADO", "rc": None})
         return registro
     except (OSError, subprocess.SubprocessError) as fallo:
-        registro.update({"estado": NO_MEDIDO, "razon": _limpiar(f"NO_ARRANCO: {fallo}", sujeto, raiz),
+        registro.update({"estado": NO_MEDIDO, "razon": _limpiar(f"NO_ARRANCO: {fallo}", sujeto,
+                                                                raiz or repo),
                          "rc": None})
         return registro
 
@@ -112,7 +215,8 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str, triaje: Mapp
         registro.update({"estado": NO_APLICABLE, "razon": f"EL_INSTRUMENTO_NO_VIO_SUJETO: {etiqueta}"})
         return registro
     if clase == NO_MEDIDO:
-        detalle = _limpiar((hecho.stderr or b"").decode("utf-8", "replace").strip(), sujeto, raiz)
+        detalle = _limpiar((hecho.stderr or b"").decode("utf-8", "replace").strip(), sujeto,
+                           raiz or repo)
         razon = f"{etiqueta}" if not detalle else f"{etiqueta}: {detalle}"
         registro.update({"estado": NO_MEDIDO, "razon": razon})
         return registro
@@ -123,7 +227,7 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str, triaje: Mapp
         # An instrument that exits on a contract code and prints no JSON has crashed; its last
         # stderr line is the only evidence of why, so it travels with the state.
         cola = [l for l in _limpiar((hecho.stderr or b"").decode("utf-8", "replace"),
-                                    sujeto, raiz).splitlines() if l.strip()]
+                                    sujeto, raiz or repo).splitlines() if l.strip()]
         razon = "SALIDA_NO_JSON" + (f": {cola[-1][:200]}" if cola else "")
         registro.update({"estado": NO_MEDIDO, "razon": razon})
         return registro
@@ -138,11 +242,38 @@ def ejecutar(instrumento: inst.Instrumento, sujeto: str, raiz: str, triaje: Mapp
         registro.update({"estado": NO_MEDIDO, "razon": "SALIDA_SIN_HALLAZGOS_DECLARADOS",
                          "denominador": instrumento.denominador(salida)})
         return registro
+
+    identidades = instrumento.identidades(salida)
+    if identidades is None:
+        # The count without the names is a number no diff can act on: a gate that reported
+        # "two findings became two findings" would pass a pull request that swapped both.
+        registro.update({"estado": NO_MEDIDO, "razon": "SALIDA_SIN_IDENTIDADES",
+                         "hallazgos_declarados": hallazgos,
+                         "denominador": instrumento.denominador(salida)})
+        return registro
+
+    # Sorted here, not trusted from the payload: two runs must seal the same bytes even if an
+    # instrument walks a filesystem whose iteration order is not stable.
+    nombres = sorted(identidades)
+    if instrumento.reconciliar is not None:
+        reconcilia = bool(instrumento.reconciliar(salida, nombres))
+    else:
+        reconcilia = len(nombres) == hallazgos
+    if not reconcilia:
+        registro.update({"estado": NO_MEDIDO, "razon": "IDENTIDADES_NO_RECONCILIAN",
+                         "hallazgos_declarados": hallazgos,
+                         "denominador": instrumento.denominador(salida),
+                         "huellas_de_hallazgo": nombres})
+        return registro
+
     registro.update({
         "estado": APLICABLE,
         "razon": etiqueta,
         "denominador": instrumento.denominador(salida),
-        "hallazgos": hallazgos,
+        "hallazgos": len(nombres),
+        "hallazgos_declarados": hallazgos,
+        "huellas_de_hallazgo": nombres,
+        "identidades_reconcilian": True,
     })
     return registro
 
@@ -151,8 +282,9 @@ def _sha256(datos: bytes) -> str:
     return hashlib.sha256(datos).hexdigest()
 
 
-def correr(sujeto: str, raiz: str, tiempo_limite: int = TIEMPO_LIMITE_POR_DEFECTO,
-           base_entorno: Mapping[str, str] | None = None, forzar: bool = False) -> dict:
+def correr(sujeto: str, raiz: str | None = None, tiempo_limite: int = TIEMPO_LIMITE_POR_DEFECTO,
+           base_entorno: Mapping[str, str] | None = None, forzar: bool = False,
+           pines: Mapping | None = None) -> dict:
     """Triage, run what the triage admitted, and return the measured body of the receipt.
 
     `forzar` runs every instrument regardless of the gate. It exists to measure what the gate
@@ -166,7 +298,7 @@ def correr(sujeto: str, raiz: str, tiempo_limite: int = TIEMPO_LIMITE_POR_DEFECT
     ejecutores = {}
     for instrumento in inst.INSTRUMENTOS:
         ejecutores[instrumento.nombre] = ejecutar(
-            instrumento, sujeto, raiz, triaje, tiempo_limite, base_entorno)
+            instrumento, sujeto, raiz, triaje, tiempo_limite, base_entorno, pines)
     return {"superficie": sup, "triaje": triaje, "ejecutores": ejecutores,
             "modo": "FORZADO" if forzar else "TRIADO"}
 
@@ -188,5 +320,5 @@ def raiz_por_defecto() -> str:
     return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-__all__ = ["correr", "ejecutar", "entorno_de", "sujeto_git", "raiz_por_defecto",
-           "APLICABLE", "NO_APLICABLE", "NO_MEDIDO", "NO_EJECUTADO"]
+__all__ = ["correr", "ejecutar", "entorno_de", "resolver", "sujeto_git", "raiz_por_defecto",
+           "APLICABLE", "NO_APLICABLE", "NO_MEDIDO", "NO_EJECUTADO", "CLON", "PAQUETE"]

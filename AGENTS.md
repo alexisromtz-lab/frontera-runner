@@ -7,7 +7,8 @@ self-test or the contract tests. Numbers quoted here are printed by the command 
 
 One CLI: run four boundary instruments over a subject, decide **before** running which of them
 have a universe at all, and emit one sealed receipt plus a bounded Markdown block for a pull
-request. Nothing else. No daemon, no server, no network client, no plugin system, no storage.
+request. Then compare two receipts (`diff`) so that the seal has a consumer. Nothing else. No
+daemon, no server, no network client, no plugin system, no storage.
 
 The four instruments live in their own repositories and are **not** dependencies of this one.
 This repo knows them only by their command line and their JSON.
@@ -36,24 +37,37 @@ This repo knows them only by their command line and their JSON.
    in `triaje_frontera.PATRONES_*`/`triar()` are contract: adding a reason is a schema change,
    and it needs a test that prints it. Check: `estado_sin_medicion_nombra_su_razon` and
    `medido_es_numero` in `leyes()`, both falsified by the tests.
-6. **The four laws hold on every receipt.** Partition (every executor is in exactly one state
-   and the counts sum to the instrument count), executor identity (version + commit + digest
-   for each), measured-is-a-number (a `rc` we accepted carries counters or says why not), and
-   no-unmeasured-state-without-a-reason. `verificar()` recomputes them from the body; a receipt
-   whose body was edited afterwards must not re-seal. Check: `--self-test` prints
+6. **The five laws hold on every receipt.** Partition (every executor is in exactly one state
+   and the counts sum to the instrument count), executor identity (version + digest for each, plus
+   commit unless `procedencia` is `PAQUETE`), measured-is-a-number (a `rc` we accepted carries
+   counters or says why not), findings-are-named (`hallazgos` equals the size of the identity
+   census, and the census is what `diff` subtracts), and no-unmeasured-state-without-a-reason.
+   `verificar()` recomputes them from the body; a receipt whose body was edited afterwards must not
+   re-seal. Check: `--self-test` prints
    `sello recompone: True · cuerpo alterado no recompone: True`.
-7. **Determinism, not approximate determinism.** No timestamps anywhere; `PYTHONHASHSEED=0`;
+7. **Count and census cannot diverge.** `hallazgos` is `len(census)`, never the instrument's own
+   counter: a row that cannot be named is `SALIDA_SIN_IDENTIDADES`, and a census whose size
+   disagrees with the declared counter is `IDENTIDADES_NO_RECONCILIAN`. Adding an instrument means
+   teaching `instrumentos._*_identidades` what one finding *is* for it first, and a unit that is not
+   a finding (`ts-py-anchor-guard` counts pairs) declares `unidad` and its own `reconciliar`.
+8. **The comparison is the consumer, and it has a precedence.** `diff` verifies both seals and
+   both sets of laws before reading a single executor (`3`), then refuses a measurement that
+   disappeared (`PERDIDA_DE_MEDICION`) or a delta produced by different bytes
+   (`DELTA_NO_ATRIBUIBLE`) as `2`, then reports new findings as `1`. A resolved finding never fires
+   the gate, and a lost measurement is never credited as one. Check: `ConsumidorDiferencial`.
+
+9. **Determinism, not approximate determinism.** No timestamps anywhere; `PYTHONHASHSEED=0`;
    sorted keys and sorted lists; the reference date of age strata is a commit date, never the
    clock. Check: `--self-test` prints `dos corridas byte-idénticas: True`, and the four smoke
    subjects were each run twice with identical bytes.
-8. **No absolute paths in the receipt.** Paths are masked to `<sujeto>` and `<herramientas>`.
+10. **No absolute paths in the receipt.** Paths are masked to `<sujeto>` and `<herramientas>`.
    A receipt from one machine must be comparable with the same subject on another.
-9. **Markdown is bounded.** `render.TOPE = 65_536` is the ceiling of a PR comment / Check Run.
+11. **Markdown is bounded.** `render.TOPE = 65_536` is the ceiling of a PR comment / Check Run.
    Over it, `recortar()` cuts and says it cut. A silent truncation is a false green.
-10. **The interpreter is declared.** The digest of the code does not name the runtime, so
+12. **The interpreter is declared.** The digest of the code does not name the runtime, so
     `interprete` travels in the receipt. The runner passes `sys.executable` to every
     subprocess: one interpreter per run, never a mix.
-11. **Numbers in `README.md` come from a stated command.** Each table names the subject and the
+13. **Numbers in `README.md` come from a stated command.** Each table names the subject and the
     invocation. The four smoke subjects were hand-built in `/tmp` and are described well enough
     to rebuild them; the tests use fakes and their numbers are properties, not measurements.
     Never quote a measurement taken from a private repository.
@@ -62,11 +76,13 @@ This repo knows them only by their command line and their JSON.
 
 ```bash
 python -m frontera_runner.cli --self-test              # 3 properties, RC 0
-python -m unittest discover -s tests                   # 33 tests, RC 0
+python -m unittest discover -s tests                   # 52 tests, RC 0
 ```
 
 Both must pass. A change that does not move any test is suspect: state why in the commit
-message. The suite spawns subprocesses for the fakes, so it takes ~25 s wall and ~8 s user.
+message. The suite spawns subprocesses for the fakes, so it takes ~70 s wall. The fixture commits
+are pinned to a fixed date: a commit digest that moved with the clock would make the byte-identity
+tests pass or fail depending on the second they ran in.
 
 ## Changing the triage
 
@@ -81,6 +97,8 @@ reason is printed in the table, the JSON and the Markdown.
 
 One `Instrumento` in `instrumentos.INSTRUMENTOS`: module, package (for version and digest),
 arguments, the rc contract, and where in its JSON the denominator and the finding count live.
-Then the four-state mapping in `runner.ejecutar` and a fake in `tests/apoyo.py`. If the new JSON
-shape has no counters, the receipt will say `SALIDA_SIN_HALLAZGOS_DECLARADOS` until you teach
-`_denominador` to read it — and that is the honest answer, not a bug to paper over.
+Then an `identidades` extractor that names one finding, and a fake in `tests/apoyo.py` whose
+payload publishes those names — a fake that publishes counters without detail is now correctly
+read as `SALIDA_SIN_IDENTIDADES`. If the new JSON shape has no counters, the receipt will say
+`SALIDA_SIN_HALLAZGOS_DECLARADOS` until you teach `_denominador` to read it — and that is the
+honest answer, not a bug to paper over.

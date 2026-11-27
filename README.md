@@ -8,8 +8,9 @@ read, in which an instrument that had nothing to measure says so by name instead
 green zero.
 
 ```
-frontera-runner <sujeto>            # Markdown for a PR check
-frontera-runner <sujeto> --json     # the canonical receipt
+frontera-runner <sujeto>                                 # Markdown for a PR check
+frontera-runner <sujeto> --json                          # the canonical receipt
+frontera-runner diff --base b.json --head h.json         # the gate: what the PR changed
 ```
 
 ## Why this exists
@@ -52,6 +53,58 @@ A run whose instrument exits on a "measured" code without publishing its counter
 empty one was the first bug this repository found in itself, and the `medido_es_numero` law below
 is what caught it.
 
+## Findings are counted from their names, not from a counter
+
+Every accepted payload is read twice: once for the number the instrument declares, and once for a
+census of the findings themselves. The census is built from the payload's own detail lists and each
+row that cannot be named is `SALIDA_SIN_IDENTIDADES`; a census whose size disagrees with the
+declared counter is `IDENTIDADES_NO_RECONCILIAN`. Both are `NO_MEDIDO` with a reason, never a
+number somebody typed. `hallazgos` in the receipt is `len(census)` — the identity list is what the
+`diff` subtracts, so it must be the thing that was counted.
+
+| instrument | identity of one finding |
+|---|---|
+| `git-complement-audit` | `class｜path｜root` |
+| `fiber-ast-lint` | `archivo｜qualname｜familia｜forma｜poblacion` |
+| `test-ordinal-ratchet` | `kind｜path｜scope｜name` |
+| `ts-py-anchor-guard` | `DIVERGE｜par｜ancla` (its unit is the **pair**, see below) |
+
+Two deliberate omissions: the audit's identity carries no `oid`/`size` (a finding that moved
+object is the same finding at the same path) and the fibre's carries no line number (a finding that
+shifted lines is not a new finding). Line numbers and object ids are precisely what a pull request
+changes without changing the defect.
+
+The guard is the exception that shaped the design: it rolls `divergen` up **per pair**, not per
+anchor, so a per-anchor census would fail to reconcile against a correct instrument. Its
+reconciliation is therefore a partition — every pair is named exactly once, and a pair is in the
+diverging set if and only if it is not clean. A pair that reports `rc: 0` while naming a broken
+anchor is `IDENTIDADES_NO_RECONCILIAN`, which is how a self-contradictory payload is caught instead
+of being read as a clean run.
+
+## Where the instruments are found: two routes, and a promise
+
+| route | when | `procedencia` | `commit` |
+|---|---|---|---|
+| `CLON` | `--raiz` names a directory of sibling checkouts, or they sit next to this repository | `CLON` | measured with `git rev-parse` |
+| `PAQUETE` | no `--raiz`, no sibling, but the module is importable by this interpreter | `PAQUETE` | `null`: an installation has no history to read |
+
+`--raiz` is a promise. Passing it means *measure exactly these checkouts*, so a missing sibling is
+`INSTRUMENTO_AUSENTE` and an installed copy is never substituted for the tree that was asked about.
+Omitting it means *find them*, which is the only route a consumer repository has: it has no four
+sibling clones, and it installs the instruments into the environment instead.
+
+A pin (`--pines archivo.json`, `{"instrumento": {"commit": …, "version": …}}`) is a **declaration**
+and never a measurement. In `CLON` it is checked against the commit that was read (`VERIFICADO` /
+`DIVERGE`); in `PAQUETE` it cannot be, and the row says `NO_VERIFICABLE` rather than claiming a
+agreement it did not observe.
+
+What makes the two routes comparable is the digest: `huella` is taken over the package's `.py`
+files by **relative** path and content, so the same bytes installed under `site-packages/` and
+checked out under `src/` seal identically. Measured on 2026-11-28 over the four instruments at
+`git-complement-audit@1c73546`, `fiber-ast-lint@753a951`, `test-ordinal-ratchet@36e8b27`,
+`ts-py-anchor-guard@02e8fe3`: **four of four huellas equal** between the installed and the checked
+out copy, and the generator's huella equal too. Only `procedencia` and `commit` differ.
+
 ## The triage, and the reasons it publishes
 
 Before any subprocess, the subject is read once — manifests, languages, test files, whether it is
@@ -72,14 +125,16 @@ not for publishing a check.
 
 `--json` writes the canonical form: sorted keys, `ensure_ascii=False`, two-space indent, one
 trailing newline, and `sello` = `sha256` over that form without the seal. Every executor carries
-its own identity — `version`, `commit` of its repository, and `huella`, a `sha256` over its
-package's `.py` files by relative path and content. Four laws are checked over the body:
+its own identity — `version`, `commit` of its repository (`null` when installed), `huella`, a
+`sha256` over its package's `.py` files by relative path and content, and `procedencia`. Five laws
+are checked over the body (`schema: 2`):
 
 | law | what it refuses |
 |---|---|
 | `particion` | applicable + not applicable + not measured + not executed must equal the instrument count |
-| `identidad_de_ejecutores` | an `APLICABLE` row without version, commit and digest |
+| `identidad_de_ejecutores` | an `APLICABLE` row without version and digest, or without a commit unless it is `PAQUETE` |
 | `medido_es_numero` | an `APLICABLE` row whose findings are `null` |
+| `hallazgos_nombrados` | an `APLICABLE` row whose findings are not the size of its own identity list |
 | `estado_sin_medicion_nombra_su_razon` | any state other than `APLICABLE` with an empty reason |
 
 A receipt that fails its own seal or its laws exits `3`, and nothing below it is worth reading.
@@ -101,6 +156,12 @@ Masking is what makes the seal portable, not just stable: the same tree copied t
 `/tmp/clon-uno` and to `/tmp/clon-dos-con-nombre-mas-largo` (2 files, 1 test, no `.git`) produced
 one seal, `sha256:d1c706c5e55b5…497`, from both paths.
 
+Measured again on 2026-11-28 with the **real** instruments instead of fakes, and with live `.git`
+history on both sides: one subject cloned to `/tmp/inv/a` and to
+`/tmp/inv/una/ruta/bastante/mas/profunda/b`, run in `PAQUETE` mode, produced the byte-identical
+receipt `8b009823e3654804…5e4b8` from both paths, and the same seal again on a second consecutive
+run. Path invariance is a property of the digest, not of the length of the directory name.
+
 ### Exit codes of the runner
 
 | code | meaning |
@@ -113,6 +174,47 @@ one seal, `sha256:d1c706c5e55b5…497`, from both paths.
 
 `2` outranks `1` in the sense that an unmeasured row is never read as a clean one; a finding still
 exits `1`.
+
+## The differential gate: `diff`
+
+A seal nobody reads is decoration. In a pull request the reader is the comparison between the
+receipt of `base.sha` and the receipt of `head.sha`:
+
+```
+frontera-runner diff --base recibo-base.json --head recibo-head.json --md comentario.md
+```
+
+The order of the checks is the contract, because each one makes the next meaningless:
+
+1. **Both seals are recomputed before a single executor is read.** A body that no longer matches
+   its own digest is a document somebody edited; what it says about findings does not matter.
+   `SELLO_NO_RECOMPONE`. Both receipts must also close their laws (`LEYES_NO_CIERRAN`) and carry
+   the schema this reader knows: two different schemas are `ESQUEMAS_DISTINTOS`, and a pair that
+   agrees on an older schema is `RECIBO_NO_COMPARABLE` — a v1 receipt has no census to subtract.
+2. **A measurement that disappeared is a loss, and a loss is never a resolution.** If an instrument
+   was `APLICABLE` in base and is not in head — the pull request deleted the anchor manifest, say —
+   the row is `PERDIDA_DE_MEDICION` with the count of findings that went unmeasured, and the gate
+   exits `2`. Reading that as "0 findings, all fixed" is the false green this repository exists to
+   refuse.
+3. **A delta produced by different bytes is not about the pull request.** If an executor's
+   `version`, `huella` or `procedencia` moved between the two receipts, the row is
+   `DELTA_NO_ATRIBUIBLE` and contributes nothing either way. Bumping an instrument is therefore
+   never silently green: `2`.
+4. **Only then** the multiset difference of the identity lists: `nuevos` (in head, not in base)
+   exits `1`; `resueltos` (in base, not in head) is reported and never fires the gate; nothing new
+   exits `0`.
+
+| code | meaning |
+|---|---|
+| `0` | `SIN_REGRESION` — no finding in head that was not in base |
+| `1` | `REGRESION` — at least one new finding, named |
+| `2` | `PERDIDA_DE_MEDICION` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR |
+| `3` | the receipt could not be read as a receipt: seal, laws or schema |
+| `20` | bad invocation (a receipt path that does not parse) |
+
+A finding that was already in base is not a regression, and a finding that appears because an
+instrument got *stricter* is `DELTA_NO_ATRIBUIBLE` rather than a regression — the gate refuses to
+attribute it and says why.
 
 ## The age partition travels with the audit row
 
@@ -168,7 +270,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, thirty-three tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, fifty-two tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
@@ -180,7 +282,12 @@ The fakes answer through `<subject>/.fake/<instrument>.json`, because the enviro
 and the subject is the only channel the runner leaves open on purpose. The suite covers the triage
 refusals, the entire exit-code mapping including the `2` trap, a crashing instrument, a timeout, a
 missing instrument, seal recomputation and tamper detection, byte identity across two runs,
-`NO_MEDIDO` where the instrument omitted its counters, and the 65 536-character cut.
+`NO_MEDIDO` where the instrument omitted its counters, and the 65 536-character cut. On top of
+that, the `diff` contract (a receipt tampered with in one byte is `3`, a finding already in base is
+not a regression, a deleted measurement is `2` and never "resolved", the guard's per-pair
+partition), the two resolution routes, and path invariance: two clones of one subject at two depths,
+two different `--raiz`, one seal — with the fixtures' commits pinned to a fixed date, because
+otherwise the digest of a fake repository depends on the second it was created in.
 
 ## Boundaries
 
@@ -188,8 +295,10 @@ missing instrument, seal recomputation and tamper detection, byte identity acros
   instrument that only works from its own working directory fails here instead of passing quietly.
 - **No writes into an instrument's repository.** `PYTHONDONTWRITEBYTECODE=1`, no baseline rewriting,
   nothing but reads.
-- **Its own repository.** This runner is not vendored into any instrument; `--raiz` points at the
-  directory where the four clones are siblings, and defaults to the parent of this repository.
+- **Its own repository.** This runner is not vendored into any instrument. It finds them two ways
+  and never mixes them: `--raiz` names sibling checkouts (default: the parent of this repository),
+  and with no `--raiz` an absent sibling falls back to the package installed in this interpreter.
+  An explicit `--raiz` that is missing an instrument is a hole, not a fallback.
 - **Zero third-party dependencies.** Standard library only, Python 3.11 or newer (`tomllib`).
 
 ## License

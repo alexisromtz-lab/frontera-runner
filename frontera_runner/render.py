@@ -90,8 +90,18 @@ def _detalle(recibo: Mapping) -> list[str]:
         lineas.append(f"- razón: {registro['razon'] or '—'}")
         lineas.append(f"- huella del ejecutor: `{registro['huella'] or 'NO_MEDIDO'}`")
         lineas.append(f"- salida sellada: `{registro['salida_sha256'] or 'NO_MEDIDO'}`")
+        lineas.append(f"- procedencia: `{registro.get('procedencia') or 'NO_MEDIDO'}` · "
+                      f"commit: `{(registro.get('commit') or 'NO_MEDIDO')[:12]}`")
+        if registro.get("pin"):
+            pin = registro["pin"]
+            lineas.append(f"- pin declarado: `{pin.get('estado')}` · "
+                          f"commit `{str(pin.get('commit_declarado') or 'NO_MEDIDO')[:12]}`")
         denominador = _denominador_celda(registro["denominador"])
         lineas.append(f"- denominador: {denominador}")
+        if registro.get("hallazgos_declarados") is not None:
+            lineas.append(f"- hallazgos declarados por el instrumento: "
+                          f"`{registro['hallazgos_declarados']}` en unidades de "
+                          f"`{registro.get('unidad_declarada')}`")
         lineas.append("")
     return lineas
 
@@ -122,4 +132,73 @@ def markdown(recibo: Mapping, tope: int = TOPE) -> str:
     return recortar("\n".join(lineas).rstrip("\n") + "\n", tope)
 
 
-__all__ = ["markdown", "recortar", "TOPE"]
+#: How many identities of one kind a pull-request comment lists. The receipt carries all of them;
+#: a comment that pastes ten thousand lines is a comment nobody reads, and GitHub truncates it.
+TOPE_IDENTIDADES = 25
+
+
+def _identidades(titulo: str, claves: list[str]) -> list[str]:
+    if not claves:
+        return []
+    lineas = [f"- {titulo}: {len(claves)}"]
+    for clave in claves[:TOPE_IDENTIDADES]:
+        lineas.append(f"  - `{clave}`")
+    if len(claves) > TOPE_IDENTIDADES:
+        lineas.append(f"  - … {len(claves) - TOPE_IDENTIDADES} más en el recibo JSON")
+    return lineas
+
+
+def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
+    """The one comment a pull request gets: what base said, what head says, and the verdict."""
+    resumen = delta["resumen"]
+    lineas = [
+        f"# Frontera · diff base→head · {delta['veredicto']} · RC `{delta.get('rc')}`",
+        "",
+        f"base `HEAD {(delta['sujeto']['base'] or 'NO_MEDIDO')[:12]}` · "
+        f"head `HEAD {(delta['sujeto']['head'] or 'NO_MEDIDO')[:12]}`",
+        "",
+        f"nuevos `{resumen['nuevos']}` · resueltos `{resumen['resueltos']}` · "
+        f"pérdidas de medición `{resumen['perdidas_de_medicion']}` · "
+        f"instrumentos sin base medida `{resumen['ganancias_de_medicion']}` · "
+        f"no atribuibles `{resumen['no_atribuibles']}`",
+        "",
+        "## Instrumentos",
+        "",
+        "| instrumento | base | head | nuevos | resueltos | lectura |",
+        "|---|---|---|---|---|---|",
+    ]
+    for nombre, fila in sorted(delta["instrumentos"].items()):
+        lineas.append(
+            f"| `{nombre}` | {fila['estado_base']} | {fila['estado_head']} | "
+            f"{len(fila['nuevos'])} | {len(fila['resueltos'])} | "
+            f"{fila['nota'] or ('delta atribuible' if fila['atribuible'] else '—')} |")
+    lineas.append("")
+
+    detalle = []
+    for nombre, fila in sorted(delta["instrumentos"].items()):
+        bloque = [f"### `{nombre}`", ""]
+        bloque += _identidades("nuevos en head", fila["nuevos"])
+        bloque += _identidades("resueltos desde base", fila["resueltos"])
+        if fila.get("hallazgos_de_base_perdidos") is not None:
+            bloque.append(f"- la medición de base nombraba "
+                          f"`{fila['hallazgos_de_base_perdidos']}` hallazgo(s) que head ya no mide: "
+                          "una pérdida de medición no es una resolución")
+        if fila.get("hallazgos_de_head_sin_base") is not None:
+            bloque.append(f"- base no medía este instrumento; head declara "
+                          f"`{fila['hallazgos_de_head_sin_base']}` hallazgo(s) sin base contra la "
+                          "cual compararlos")
+        if bloque[-1] != "":
+            detalle += bloque + [""]
+    if detalle:
+        lineas += ["## Detalle", ""] + detalle
+
+    lineas += ["## Sellos verificados", "",
+               f"- base: `{'recompone' if delta['verificacion']['base'] else 'NO RECOMPONE'}` · "
+               f"`{delta['sello']['base']}`",
+               f"- head: `{'recompone' if delta['verificacion']['head'] else 'NO RECOMPONE'}` · "
+               f"`{delta['sello']['head']}`",
+               ""]
+    return recortar("\n".join(lineas).rstrip("\n") + "\n", tope)
+
+
+__all__ = ["markdown", "markdown_diff", "recortar", "TOPE", "TOPE_IDENTIDADES"]

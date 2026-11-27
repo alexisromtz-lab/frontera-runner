@@ -1,0 +1,140 @@
+name: frontera
+
+# One sealed receipt per side, one differential gate, one idempotent comment.
+#
+# This repository is the consumer a consumer repository will be given: there are no four sibling
+# clones here. Each instrument is installed by pinned commit, so the run exercises the `PAQUETE`
+# route -- the only one available to a checkout in CI. If the resolver ever needs a local path,
+# this workflow is what notices.
+#
+# `checks: write` is deliberately not requested: the verdict is a pull-request comment plus the
+# job exit code, and asking for a permission no step uses is a claim nobody checks.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: frontera-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONHASHSEED: "0"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  frontera:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          # `fetch-depth: 0` is not a convenience: `git-complement-audit` counts what lives
+          # outside HEAD, and a shallow clone has no outside. Zero means every branch and tag.
+          fetch-depth: 0
+          path: head
+
+      - name: Check out the base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+          path: base
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the four instruments, pinned by commit
+        run: |
+          set -eu
+          python -m pip install --disable-pip-version-check --quiet \
+            "git+https://github.com/alexisromtz-lab/git-complement-audit@1c73546fa" \
+            "git+https://github.com/alexisromtz-lab/fiber-ast-lint@23dbf9a" \
+            "git+https://github.com/alexisromtz-lab/test-ordinal-ratchet@36e8b27" \
+            "git+https://github.com/alexisromtz-lab/ts-py-anchor-guard@02e8fe3"
+
+      - name: Install the runner under test
+        run: python -m pip install --disable-pip-version-check --quiet ./head
+
+      - name: Measure base and head
+        run: |
+          set -u
+          mkdir -p salida
+          pines=""
+          if [ -f head/.github/frontera-pins.json ]; then
+            pines="--pines head/.github/frontera-pins.json"
+          fi
+          # No `--raiz`: there is no sibling directory in CI, and pretending otherwise would
+          # report INSTRUMENTO_AUSENTE for all four.
+          #
+          # RC 1 (findings) and RC 2 (a hole) are measurements, not failures: `set -e` here
+          # would abort at the first finding of the base and leave no receipt to compare. The
+          # verdict belongs to the diff step, which is the only step allowed to fail the job.
+          rc_base=0
+          frontera-runner base --recibo salida/base.json --md salida/base.md $pines || rc_base=$?
+          rc_head=0
+          frontera-runner head --recibo salida/head.json --md salida/head.md $pines || rc_head=$?
+          echo "base rc=$rc_base · head rc=$rc_head" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compare, and publish one comment for the whole pull request
+        id: diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUMERO: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          # `--json` is a switch and writes to stdout: the file is a redirect, not an argument.
+          rc=0
+          frontera-runner diff --base salida/base.json --head salida/head.json \
+            --json --md salida/comentario.md > salida/delta.json || rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          veredicto="NO_MEDIDO"
+          if python -c 'import json,sys;d=json.load(open("salida/delta.json"));sys.exit(0 if "veredicto" in d else 1)' 2>/dev/null; then
+            veredicto=$(python -c 'import json;d=json.load(open("salida/delta.json"));print(d["veredicto"])')
+          fi
+          echo "veredicto=$veredicto" >> "$GITHUB_OUTPUT"
+          # A comparison that could not be written has no comment to publish, and no id to find.
+          [ -f salida/comentario.md ] || exit 0
+          if [ -n "${NUMERO:-}" ]; then
+            {
+              echo "<!-- frontera-runner -->"
+              echo
+              cat salida/comentario.md
+            } > salida/publicable.md
+            # The numeric id the REST API patches, not the GraphQL node id `gh pr view` returns.
+            previo=$(gh api --paginate "repos/$REPO/issues/$NUMERO/comments?per_page=100" \
+              --jq '.[] | select(.body | contains("<!-- frontera-runner -->")) | .id' \
+              | head -n 1)
+            if [ -n "$previo" ]; then
+              gh api --method PATCH "repos/$REPO/issues/comments/$previo" \
+                -F body=@"salida/publicable.md" >/dev/null
+            else
+              gh pr comment "$NUMERO" --body-file salida/publicable.md
+            fi
+          fi
+
+      - name: Keep both receipts and the delta
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recibos-frontera
+          path: salida/*.json
+          if-no-files-found: warn
+
+      - name: The verdict, where the job summary can read it
+        if: always()
+        run: |
+          echo "comparación: ${{ steps.diff.outputs.veredicto || 'NO_MEDIDO' }}"
+          if [ -f salida/comentario.md ]; then cat salida/comentario.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: The gate is the exit code of the comparison
+        if: always()
+        run: exit "${{ steps.diff.outputs.rc || 2 }}"
