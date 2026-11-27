@@ -1,0 +1,1 @@
+{"version": 1, "pares": [{"nombre": "vista", "fuente": "docs/vista.ts", "referencia": "docs/anclas.json", "mapeos": {"ALTO": "VISTA_H", "ANCHO": "VISTA_W"}, "exigir_cobertura_total": true}]}

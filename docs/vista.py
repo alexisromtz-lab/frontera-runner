@@ -1,0 +1,2 @@
+VISTA_H = 481
+VISTA_W = 640
