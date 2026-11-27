@@ -57,6 +57,8 @@ def _parser_diff() -> argparse.ArgumentParser:
     p.add_argument("--head", metavar="RUTA", required=True, help="recibo de head (el PR)")
     p.add_argument("--json", action="store_true", help="escribir la comparación JSON en stdout")
     p.add_argument("--md", metavar="RUTA", help="escribir el Markdown del comentario en RUTA")
+    p.add_argument("--estricto-base", action="store_true",
+                   help="RC 2 si base no midió un instrumento que head sí (rutas congeladas)")
     return p
 
 
@@ -87,7 +89,7 @@ def _diff(argv: list[str]) -> int:
         falta = args.base if base is None else args.head
         print(f"frontera-runner diff: no es un recibo JSON legible: {falta}", file=sys.stderr)
         return RC_ARIDAD
-    delta = comparar(base, head)
+    delta = comparar(base, head, estricto=args.estricto_base)
     texto = markdown_diff(delta)
     if args.md:
         with open(args.md, "w", encoding="utf-8") as f:

@@ -354,6 +354,80 @@ class ConsumidorDiferencial(Base):
     def fila(self, delta, nombre):
         return delta["instrumentos"][nombre]
 
+    def test_ninguna_nota_vive_sin_contador_ni_sin_salida(self):
+        """The catalogue, walked: a note the classifier can write always has a reader.
+
+        This is the law the table exists to make checkable, and it used to be false:
+        `SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS` was written by the classifier, counted by nobody, and
+        a delta whose only row carried it came out green. Worse, the summary built for an
+        unreadable receipt was a hand-written list that had already lagged the real one.
+
+        Both halves are measured: every note the branches can produce is in `NOTAS`, and every row
+        of `NOTAS` is producible -- a row nobody can reach is a promise nobody keeps.
+        """
+        identidad = {"version": "1.0", "huella": "sha256:" + "0" * 64, "procedencia": "CLON"}
+        alcanzadas = set()
+        for estado_base in (runner.APLICABLE, runner.NO_APLICABLE, runner.NO_MEDIDO):
+            for estado_head in (runner.APLICABLE, runner.NO_APLICABLE, runner.NO_MEDIDO):
+                for version_head in ("1.0", "2.0"):
+                    fila = recibo._delta_de_ejecutor(
+                        "x",
+                        {"estado": estado_base, "huellas_de_hallazgo": [], "hallazgos": 0,
+                         **identidad},
+                        {"estado": estado_head, "huellas_de_hallazgo": [], "hallazgos": 0,
+                         **dict(identidad, version=version_head)})
+                    if fila["nota"]:
+                        alcanzadas.add(fila["nota"])
+        # The one note the pairwise classifier cannot write: it is written by `comparar` when an
+        # instrument exists on a single side. It is reached the way a receipt reaches it.
+        base, head = self.par()
+        head = dict(head)
+        head["ejecutores"] = {k: v for k, v in head["ejecutores"].items() if k != "fiber-ast-lint"}
+        sin_sello = {k: v for k, v in head.items() if k != "sello"}
+        head["sello"] = recibo.sha256_de(recibo.canonico(sin_sello).encode("utf-8"))
+        self.assertTrue(recibo.verificar(head))
+        alcanzadas.add(self.fila(recibo.comparar(base, head), "fiber-ast-lint")["nota"])
+
+        self.assertEqual(alcanzadas, set(recibo.NOTAS))
+        # A note that is in the table but never written is a dead row; a note written but not in
+        # the table raises in `_nota` before this line. Neither survives the two assertions.
+        vacio = recibo._resumen_vacio()
+        self.assertEqual(set(vacio),
+                         {"nuevos", "resueltos"} | {lectura["contador"] for lectura in
+                                                    recibo.NOTAS.values() if lectura["contador"]})
+
+    def test_el_modo_estricto_convierte_una_base_sin_medida_en_rc_dos(self):
+        """Same delta, two readings: by default base's silence is provenance; strict stops.
+
+        The default is preserved on purpose -- a pull request that adds a surface where base had
+        nothing to measure is normally the pull request's own business, and blocking it would tax
+        every new module. A frozen route would rather stop than guess, and that is the flag.
+        """
+        # Base did not answer and head did: the hole is in base, and head's findings may predate
+        # the pull request, so attribution is withdrawn by default and only `estricto` stops.
+        s = self.sujeto()
+        s.responder("ts-py-anchor-guard", rc=2)
+        base = self.medir(s)
+        s.responder("ts-py-anchor-guard", rc=1, salida=apoyo.un_hallazgo("ts-py-anchor-guard"))
+        head = self.medir(s)
+        delta = recibo.comparar(base, head)
+        self.assertEqual(self.fila(delta, "ts-py-anchor-guard")["nota"], "SIN_BASE_MEDIDA")
+        self.assertEqual((delta["rc"], delta["veredicto"]), (0, "SIN_REGRESION"))
+        estricto = recibo.comparar(base, head, estricto=True)
+        self.assertEqual((estricto["rc"], estricto["veredicto"]), (2, "SIN_BASE_MEDIDA"))
+        with tempfile.TemporaryDirectory() as caja:
+            ruta_base = recibo.escribir(base, os.path.join(caja, "base.json"))
+            ruta_head = recibo.escribir(head, os.path.join(caja, "head.json"))
+            guardado = sys.stdout
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+            try:
+                rc = cli.main(["diff", "--base", ruta_base, "--head", ruta_head,
+                               "--estricto-base"])
+            finally:
+                sys.stdout.close()
+                sys.stdout = guardado
+            self.assertEqual(rc, 2)
+
     def test_dos_recibos_iguales_no_son_regresion(self):
         base, head = self.par()
         delta = recibo.comparar(base, head)
@@ -860,6 +934,62 @@ class Huellas(unittest.TestCase):
                 f.write("x = 2\n")
             self.assertNotEqual(una, inst.huella_de(caja, "pkg"))
             self.assertIsNone(inst.huella_de(caja, "no-existe"))
+
+    def test_una_huella_no_se_toma_sobre_un_arbol_que_se_esta_escribiendo(self):
+        """A file the listing promised and the disk no longer has is a race, not a crash.
+
+        This is the flake that ran uncaught for weeks, once in ~140 full suites, and the piece of
+        evidence that it was never random: `huella_de_arbol` walked the tree, then opened what the
+        walk had listed. A build writing into a checkout between the two steps raised
+        `FileNotFoundError` out of the whole receipt. The walk is now retried, and a tree that
+        keeps moving answers `None` -- `NO_MEDIDO` -- instead of an exception or a number.
+        """
+        with tempfile.TemporaryDirectory() as caja:
+            os.makedirs(os.path.join(caja, "pkg"))
+            for nombre in ("a.py", "b.py"):
+                with open(os.path.join(caja, "pkg", nombre), "w", encoding="utf-8") as f:
+                    f.write(f"x = {nombre!r}\n")
+            real = os.walk
+
+            def walk_que_borra(raiz, *args, **kwargs):
+                for actual, dirs, nombres in real(raiz, *args, **kwargs):
+                    if nombres:
+                        os.unlink(os.path.join(actual, nombres[0]))
+                    yield actual, dirs, nombres
+
+            with unittest.mock.patch("frontera_runner.instrumentos.os.walk", walk_que_borra):
+                # One pass reads a path the listing promised and the disk already deleted.
+                self.assertIsNone(inst.huella_de_arbol(os.path.join(caja, "pkg"), intentos=1))
+            # Two passes: the second walks what survived, and the digest is of a tree that exists.
+            huella = inst.huella_de(caja, "pkg")
+            self.assertIsNotNone(huella)
+            self.assertEqual(huella, inst.huella_de(caja, "pkg"))
+
+    def test_un_subarbol_que_desaparece_no_se_omite_en_silencio(self):
+        """The quieter half of the same race: `os.walk` drops a directory it cannot list.
+
+        A subtree that vanishes between the listing and the descent used to be skipped without a
+        word, and the digest that followed was a valid `sha256:` of a tree nobody has: an absence
+        dressed as a measurement, the same defect as a `NO_MEDIDO` reading green one level up.
+        """
+        with tempfile.TemporaryDirectory() as caja:
+            os.makedirs(os.path.join(caja, "pkg", "sub"))
+            for ruta in (("pkg", "a.py"), ("pkg", "sub", "b.py")):
+                with open(os.path.join(caja, *ruta), "w", encoding="utf-8") as f:
+                    f.write("x = 1\n")
+            real = os.walk
+
+            def walk_que_pierde_el_subarbol(raiz, *args, **kwargs):
+                for actual, dirs, nombres in real(raiz, *args, **kwargs):
+                    if "sub" in dirs:
+                        import shutil
+
+                        shutil.rmtree(os.path.join(actual, "sub"))
+                    yield actual, dirs, nombres
+
+            with unittest.mock.patch("frontera_runner.instrumentos.os.walk",
+                                     walk_que_pierde_el_subarbol):
+                self.assertIsNone(inst.huella_de_arbol(os.path.join(caja, "pkg"), intentos=1))
 
     def test_la_raiz_por_defecto_es_el_padre_del_repositorio(self):
         """Sibling-clone convention: one level up is where the instruments live, not this repo."""

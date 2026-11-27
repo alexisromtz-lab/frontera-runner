@@ -159,9 +159,9 @@ def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
         "",
         f"nuevos `{resumen['nuevos']}` · resueltos `{resumen['resueltos']}` · "
         f"pérdidas de medición `{resumen['perdidas_de_medicion']}` · "
-        f"mediciones no hechas `{resumen.get('mediciones_no_hechas', 0)}` · "
+        f"mediciones no hechas `{resumen['mediciones_no_hechas']}` · "
         f"instrumentos sin base medida `{resumen['ganancias_de_medicion']}` · "
-        f"superficies nuevas `{resumen.get('superficies_nuevas', 0)}` · "
+        f"superficies nuevas `{resumen['superficies_nuevas']}` · "
         f"no atribuibles `{resumen['no_atribuibles']}`",
         "",
         "## Instrumentos",
