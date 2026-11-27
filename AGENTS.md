@@ -52,9 +52,12 @@ This repo knows them only by their command line and their JSON.
    a finding (`ts-py-anchor-guard` counts pairs) declares `unidad` and its own `reconciliar`.
 8. **The comparison is the consumer, and it has a precedence.** `diff` verifies both seals and
    both sets of laws before reading a single executor (`3`), then refuses a measurement that
-   disappeared (`PERDIDA_DE_MEDICION`) or a delta produced by different bytes
-   (`DELTA_NO_ATRIBUIBLE`) as `2`, then reports new findings as `1`. A resolved finding never fires
-   the gate, and a lost measurement is never credited as one. Check: `ConsumidorDiferencial`.
+   disappeared (`PERDIDA_DE_MEDICION`), a base that never measured (`SIN_BASE_MEDIDA`) and a delta
+   produced by different bytes (`DELTA_NO_ATRIBUIBLE`) as `2`, then reports new findings as `1` —
+   including the findings on a surface that base answered `NO_APLICABLE` and head actually measured
+   (`SUPERFICIE_NUEVA`): filling an absence is not the same as finding a hole. A resolved finding
+   never fires the gate, and a lost measurement is never credited as one. Check:
+   `ConsumidorDiferencial`.
 
 9. **Determinism, not approximate determinism.** No timestamps anywhere; `PYTHONHASHSEED=0`;
    sorted keys and sorted lists; the reference date of age strata is a commit date, never the

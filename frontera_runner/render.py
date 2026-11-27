@@ -160,6 +160,7 @@ def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
         f"nuevos `{resumen['nuevos']}` · resueltos `{resumen['resueltos']}` · "
         f"pérdidas de medición `{resumen['perdidas_de_medicion']}` · "
         f"instrumentos sin base medida `{resumen['ganancias_de_medicion']}` · "
+        f"superficies nuevas `{resumen.get('superficies_nuevas', 0)}` · "
         f"no atribuibles `{resumen['no_atribuibles']}`",
         "",
         "## Instrumentos",
@@ -183,6 +184,10 @@ def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
             bloque.append(f"- la medición de base nombraba "
                           f"`{fila['hallazgos_de_base_perdidos']}` hallazgo(s) que head ya no mide: "
                           "una pérdida de medición no es una resolución")
+        if fila["nota"] == "SUPERFICIE_NUEVA":
+            bloque.append(f"- base no tenía superficie que medir y head la trae: "
+                          f"`{len(fila['nuevos'])}` hallazgo(s) sobre superficie que este cambio "
+                          "crea, contados como regresión")
         if fila.get("hallazgos_de_head_sin_base") is not None:
             bloque.append(f"- base no medía este instrumento; head declara "
                           f"`{fila['hallazgos_de_head_sin_base']}` hallazgo(s) sin base contra la "

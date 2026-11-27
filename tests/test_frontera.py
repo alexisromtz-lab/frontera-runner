@@ -360,6 +360,44 @@ class ConsumidorDiferencial(Base):
         self.assertEqual(delta["resumen"]["resueltos"], 0)
         self.assertEqual((delta["rc"], delta["veredicto"]), (0, "SIN_REGRESION"))
 
+    def test_una_superficie_nueva_con_hallazgo_es_regresion(self):
+        """Adding the first TypeScript file that diverges from its port is the change's fault.
+
+        Measured 27-Nov-2026 in Actions (corrida 46076223056): the pull request added a TypeScript
+        file with a diverging anchor and the check reported `SIN_REGRESION`. Base had answered
+        `NO_APLICABLE` -- "nothing of mine to measure", a measurement of absence -- and the diff
+        read it as a hole. A hole is `NO_MEDIDO`; an absence that this change fills is a surface
+        the change creates, and what fails on it is new.
+        """
+        s = self.vacio(git_si=True)
+        s.escribir("pkg/core.py", "def f(x):\n    return x\n")
+        base = self.medir(s)
+        self.assertEqual(self.ejecutor(base, "ts-py-anchor-guard")["estado"], runner.NO_APLICABLE)
+        s.escribir("src/engine.ts", "export const N = 3;\n")
+        s.escribir("ts-py-anchor.json", "{}")
+        s.responder("ts-py-anchor-guard", rc=1, salida=apoyo.un_hallazgo("ts-py-anchor-guard"))
+        delta = recibo.comparar(base, self.medir(s))
+        fila = self.fila(delta, "ts-py-anchor-guard")
+        self.assertEqual(fila["nota"], "SUPERFICIE_NUEVA")
+        self.assertEqual(len(fila["nuevos"]), 1)
+        self.assertIs(fila["atribuible"], True)
+        self.assertEqual(delta["resumen"]["superficies_nuevas"], 1)
+        self.assertEqual((delta["rc"], delta["veredicto"]), (1, "REGRESION"))
+
+    def test_sin_base_medida_no_se_atribuye(self):
+        """A hole in base is not an absence: its findings may predate the pull request."""
+        s = self.sujeto()
+        s.responder("ts-py-anchor-guard", rc=2)
+        base = self.medir(s)
+        self.assertEqual(self.ejecutor(base, "ts-py-anchor-guard")["estado"], runner.NO_MEDIDO)
+        s.responder("ts-py-anchor-guard", rc=1, salida=apoyo.un_hallazgo("ts-py-anchor-guard"))
+        delta = recibo.comparar(base, self.medir(s))
+        fila = self.fila(delta, "ts-py-anchor-guard")
+        self.assertEqual(fila["nota"], "SIN_BASE_MEDIDA")
+        self.assertEqual(fila["nuevos"], [])
+        self.assertEqual(delta["resumen"]["superficies_nuevas"], 0)
+        self.assertEqual((delta["rc"], delta["veredicto"]), (0, "SIN_REGRESION"))
+
     def test_un_byte_manipulado_es_rc_tres(self):
         base, head = self.par()
         manipulado = json.loads(recibo.canonico(head))

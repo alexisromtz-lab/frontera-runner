@@ -190,7 +190,12 @@ def _delta_de_ejecutor(nombre: str, antes: dict, despues: dict) -> dict:
     fila = {"estado_base": antes["estado"], "estado_head": despues["estado"],
             "nuevos": [], "resueltos": [], "atribuible": True, "nota": None}
     identidades = [(antes.get(k), despues.get(k)) for k in IDENTIDAD_DE_EJECUTOR]
-    if any(a != b for a, b in identidades):
+    # An identity can only be *different* from another one. When the instrument never ran on one
+    # side -- `NO_APLICABLE` publishes no version -- there is nothing to reconcile, and calling
+    # that "a different executor" would withdraw attribution from a change that simply turned the
+    # instrument on. Divergence needs two identities to diverge.
+    if all(a is not None and b is not None for a, b in identidades) \
+            and any(a != b for a, b in identidades):
         fila["atribuible"] = False
         fila["nota"] = "IDENTIDAD_DEL_EJECUTOR_DISTINTA"
 
@@ -208,6 +213,15 @@ def _delta_de_ejecutor(nombre: str, antes: dict, despues: dict) -> dict:
         return fila
 
     if despues["estado"] == APLICABLE:
+        if antes["estado"] == NO_APLICABLE and fila["atribuible"]:
+            # The pull request created the surface, so what fails on it is the pull request's.
+            # Base was not blind here: it answered "nothing of mine to measure", which is a
+            # measurement of absence, not a hole. A hole is `NO_MEDIDO`, and only that is
+            # `SIN_BASE_MEDIDA` -- otherwise adding the first TypeScript file next to a
+            # diverging Python port would read as green.
+            fila["nota"] = "SUPERFICIE_NUEVA"
+            fila["nuevos"] = sorted(despues.get("huellas_de_hallazgo") or [])
+            return fila
         fila["nota"] = "SIN_BASE_MEDIDA"
         fila["hallazgos_de_head_sin_base"] = despues.get("hallazgos")
         return fila
@@ -245,7 +259,8 @@ def comparar(base: dict, head: dict) -> dict:
     if not all(verificacion.values()) or not all(leyes_ok.values()) \
             or esquema["base"] != esquema["head"] or esquema["base"] != ESQUEMA:
         delta["resumen"] = {"nuevos": 0, "resueltos": 0, "perdidas_de_medicion": 0,
-                            "ganancias_de_medicion": 0, "no_atribuibles": 0}
+                            "ganancias_de_medicion": 0, "superficies_nuevas": 0,
+                            "no_atribuibles": 0}
         delta["rc"], delta["veredicto"] = salida_de_comparacion(delta)
         return delta
 
@@ -267,12 +282,14 @@ def comparar(base: dict, head: dict) -> dict:
     resueltos = sum(len(f["resueltos"]) for f in filas if f["atribuible"])
     perdidas = sum(1 for f in filas if f["nota"] == "PERDIDA_DE_MEDICION")
     ganancias = sum(1 for f in filas if f["nota"] == "SIN_BASE_MEDIDA")
+    superficies = sum(1 for f in filas if f["nota"] == "SUPERFICIE_NUEVA")
     no_atribuibles = sum(1 for f in filas
                          if f["nota"] in ("IDENTIDAD_DEL_EJECUTOR_DISTINTA",
                                           "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS"))
     delta["resumen"] = {"nuevos": nuevos, "resueltos": resueltos,
                         "perdidas_de_medicion": perdidas,
                         "ganancias_de_medicion": ganancias,
+                        "superficies_nuevas": superficies,
                         "no_atribuibles": no_atribuibles}
     delta["rc"], delta["veredicto"] = salida_de_comparacion(delta)
     return delta

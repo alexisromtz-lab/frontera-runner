@@ -196,19 +196,27 @@ The order of the checks is the contract, because each one makes the next meaning
    the row is `PERDIDA_DE_MEDICION` with the count of findings that went unmeasured, and the gate
    exits `2`. Reading that as "0 findings, all fixed" is the false green this repository exists to
    refuse.
-3. **A delta produced by different bytes is not about the pull request.** If an executor's
+3. **An absence that the pull request fills is a surface the pull request creates.** When an
+   instrument was `NO_APLICABLE` in base — "nothing of mine to measure" — and is `APLICABLE` in
+   head, every finding on that new surface is the pull request's: the row is `SUPERFICIE_NUEVA`,
+   `atribuible: true`, and the gate exits `1`. A hole is not the same thing: a base that answered
+   `NO_MEDIDO` never measured, so its findings may predate the change and the row stays
+   `SIN_BASE_MEDIDA` / `2`. Without this branch, adding the first TypeScript file next to a
+   diverging Python port would read as `SIN_REGRESION`. <!-- medido: corrida 46076223056 -->
+4. **A delta produced by different bytes is not about the pull request.** If an executor's
    `version`, `huella` or `procedencia` moved between the two receipts, the row is
    `DELTA_NO_ATRIBUIBLE` and contributes nothing either way. Bumping an instrument is therefore
-   never silently green: `2`.
-4. **Only then** the multiset difference of the identity lists: `nuevos` (in head, not in base)
+   never silently green: `2`. Divergence needs two identities to diverge: a side that never ran
+   publishes none, so the identity of a `NO_APLICABLE` side is not compared.
+5. **Only then** the multiset difference of the identity lists: `nuevos` (in head, not in base)
    exits `1`; `resueltos` (in base, not in head) is reported and never fires the gate; nothing new
    exits `0`.
 
 | code | meaning |
 |---|---|
 | `0` | `SIN_REGRESION` — no finding in head that was not in base |
-| `1` | `REGRESION` — at least one new finding, named |
-| `2` | `PERDIDA_DE_MEDICION` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR |
+| `1` | `REGRESION` — at least one new finding, named, including findings on a surface this PR created |
+| `2` | `PERDIDA_DE_MEDICION`, `SIN_BASE_MEDIDA` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR |
 | `3` | the receipt could not be read as a receipt: seal, laws or schema |
 | `20` | bad invocation (a receipt path that does not parse) |
 
