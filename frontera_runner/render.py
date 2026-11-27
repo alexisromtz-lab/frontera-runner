@@ -159,8 +159,9 @@ def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
         "",
         f"nuevos `{resumen['nuevos']}` · resueltos `{resumen['resueltos']}` · "
         f"pérdidas de medición `{resumen['perdidas_de_medicion']}` · "
+        f"mediciones no hechas `{resumen['mediciones_no_hechas']}` · "
         f"instrumentos sin base medida `{resumen['ganancias_de_medicion']}` · "
-        f"superficies nuevas `{resumen.get('superficies_nuevas', 0)}` · "
+        f"superficies nuevas `{resumen['superficies_nuevas']}` · "
         f"no atribuibles `{resumen['no_atribuibles']}`",
         "",
         "## Instrumentos",
@@ -184,6 +185,9 @@ def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
             bloque.append(f"- la medición de base nombraba "
                           f"`{fila['hallazgos_de_base_perdidos']}` hallazgo(s) que head ya no mide: "
                           "una pérdida de medición no es una resolución")
+        if fila["nota"] == "MEDICION_NO_HECHA":
+            bloque.append("- uno de los dos lados no respondió -- agotamiento, caída o salida "
+                          "ilegible: un hueco no es una ausencia, y no es verde")
         if fila["nota"] == "SUPERFICIE_NUEVA":
             bloque.append(f"- base no tenía superficie que medir y head la trae: "
                           f"`{len(fila['nuevos'])}` hallazgo(s) sobre superficie que este cambio "

@@ -50,27 +50,36 @@ This repo knows them only by their command line and their JSON.
    disagrees with the declared counter is `IDENTIDADES_NO_RECONCILIAN`. Adding an instrument means
    teaching `instrumentos._*_identidades` what one finding *is* for it first, and a unit that is not
    a finding (`ts-py-anchor-guard` counts pairs) declares `unidad` and its own `reconciliar`.
-8. **The comparison is the consumer, and it has a precedence.** `diff` verifies both seals and
+8. **The comparison is the consumer, and its precedence is data.** `diff` verifies both seals and
    both sets of laws before reading a single executor (`3`), then refuses a measurement that
-   disappeared (`PERDIDA_DE_MEDICION`), a base that never measured (`SIN_BASE_MEDIDA`) and a delta
-   produced by different bytes (`DELTA_NO_ATRIBUIBLE`) as `2`, then reports new findings as `1` —
-   including the findings on a surface that base answered `NO_APLICABLE` and head actually measured
-   (`SUPERFICIE_NUEVA`): filling an absence is not the same as finding a hole. A resolved finding
-   never fires the gate, and a lost measurement is never credited as one. Check:
-   `ConsumidorDiferencial`.
+   disappeared (`PERDIDA_DE_MEDICION`), an instrument that never answered on either side
+   (`MEDICION_NO_HECHA`) and a delta produced by different bytes (`DELTA_NO_ATRIBUIBLE`) as `2`,
+   then reports new findings as `1` — including the findings on a surface that base answered
+   `NO_APLICABLE` and head actually measured (`SUPERFICIE_NUEVA`): filling an absence is not the
+   same as finding a hole. A base that never measured (`SIN_BASE_MEDIDA`) withdraws attribution and
+   stays `0` by default; `--estricto-base` reads the same delta as `2` for a frozen route. A
+   resolved finding never fires the gate, and a lost measurement is never credited as one.
+   The pair *note → counter → exit code* lives only in `recibo.NOTAS`, and `_nota()` refuses to
+   write a note with no row: a note nobody counts used to be exactly how one false green was born.
+   Check: `ConsumidorDiferencial`, including the walk over the nine state pairs.
+9. **A digest is only taken over a tree that holds still.** `huella_de_arbol` retries a walk whose
+   files moved under it and answers `null` if they keep moving; `os.walk`'s silence about a
+   directory it cannot list is turned into a retry, never into a smaller digest. Check:
+   `Huellas::test_una_huella_no_se_toma_sobre_un_arbol_que_se_esta_escribiendo` and
+   `Huellas::test_un_subarbol_que_desaparece_no_se_omite_en_silencio`.
 
-9. **Determinism, not approximate determinism.** No timestamps anywhere; `PYTHONHASHSEED=0`;
+10. **Determinism, not approximate determinism.** No timestamps anywhere; `PYTHONHASHSEED=0`;
    sorted keys and sorted lists; the reference date of age strata is a commit date, never the
    clock. Check: `--self-test` prints `dos corridas byte-idénticas: True`, and the four smoke
    subjects were each run twice with identical bytes.
-10. **No absolute paths in the receipt.** Paths are masked to `<sujeto>` and `<herramientas>`.
+11. **No absolute paths in the receipt.** Paths are masked to `<sujeto>` and `<herramientas>`.
    A receipt from one machine must be comparable with the same subject on another.
-11. **Markdown is bounded.** `render.TOPE = 65_536` is the ceiling of a PR comment / Check Run.
+12. **Markdown is bounded.** `render.TOPE = 65_536` is the ceiling of a PR comment / Check Run.
    Over it, `recortar()` cuts and says it cut. A silent truncation is a false green.
-12. **The interpreter is declared.** The digest of the code does not name the runtime, so
+13. **The interpreter is declared.** The digest of the code does not name the runtime, so
     `interprete` travels in the receipt. The runner passes `sys.executable` to every
     subprocess: one interpreter per run, never a mix.
-13. **Numbers in `README.md` come from a stated command.** Each table names the subject and the
+14. **Numbers in `README.md` come from a stated command.** Each table names the subject and the
     invocation. The four smoke subjects were hand-built in `/tmp` and are described well enough
     to rebuild them; the tests use fakes and their numbers are properties, not measurements.
     Never quote a measurement taken from a private repository.

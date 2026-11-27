@@ -29,6 +29,57 @@ NOMBRE = "frontera-runner"
 #: of them is not attributable to the pull request, and the comparison says so instead of guessing.
 IDENTIDAD_DE_EJECUTOR = ("version", "huella", "procedencia")
 
+#: Every note a delta row can carry, and the two things a note is worth: which counter in the
+#: summary it raises, and which exit code it earns. This table is the only place that pair lives.
+#:
+#: It exists because the pair used to live in three -- the branch that wrote the note, the loop
+#: that counted it, and the function that turned the count into an exit code -- and one note was
+#: in none: `SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS` was written, read by nobody, and a delta whose
+#: only row carried it came out `0 SIN_REGRESION`. Worse, the early return for an unreadable
+#: receipt built its summary from a hand-written list that already lagged the real one by a field.
+#: A note is a promise that something reads it; `_nota` is where the promise is kept, and `orden`
+#: is the published precedence among the codes that tie.
+#:
+#: `rc_estricto` is the same note read by a frozen path: a base that never answered is not a
+#: statement about the pull request, and a gate on a frozen route would rather stop than guess.
+NOTAS = {
+    "PERDIDA_DE_MEDICION": {"contador": "perdidas_de_medicion", "veredicto": "PERDIDA_DE_MEDICION",
+                            "rc": 2, "orden": 0},
+    "MEDICION_NO_HECHA": {"contador": "mediciones_no_hechas", "veredicto": "MEDICION_NO_HECHA",
+                          "rc": 2, "orden": 1},
+    "IDENTIDAD_DEL_EJECUTOR_DISTINTA": {"contador": "no_atribuibles",
+                                        "veredicto": "DELTA_NO_ATRIBUIBLE", "rc": 2, "orden": 2},
+    "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS": {"contador": "no_atribuibles",
+                                           "veredicto": "DELTA_NO_ATRIBUIBLE", "rc": 2, "orden": 2},
+    "SUPERFICIE_NUEVA": {"contador": "superficies_nuevas", "veredicto": None, "rc": 0, "orden": 3},
+    "SIN_BASE_MEDIDA": {"contador": "ganancias_de_medicion", "veredicto": None, "rc": 0,
+                        "orden": 4, "rc_estricto": 2, "veredicto_estricto": "SIN_BASE_MEDIDA"},
+    "SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS": {"contador": None, "veredicto": None, "rc": 0,
+                                           "orden": 5},
+}
+
+
+def _nota(fila: dict, nota: str) -> dict:
+    """Write a note onto a row, refusing any note that has no counter and no exit code.
+
+    A note invented without a row in `NOTAS` fails here, in the branch that invented it, instead of
+    travelling as a string nobody counts. This is the mechanism; the test that walks the whole
+    catalogue is only its witness.
+    """
+    if nota not in NOTAS:
+        raise KeyError(f"nota sin lector en NOTAS: {nota!r}")
+    fila["nota"] = nota
+    return fila
+
+
+def _resumen_vacio() -> dict:
+    """A summary with every counter the table declares, at zero. Never a hand-written list."""
+    resumen = {"nuevos": 0, "resueltos": 0}
+    for lectura in NOTAS.values():
+        if lectura["contador"]:
+            resumen[lectura["contador"]] = 0
+    return resumen
+
 
 def canonico(datos) -> str:
     """The one serialisation: sorted keys, no ASCII escaping, one trailing newline."""
@@ -197,7 +248,7 @@ def _delta_de_ejecutor(nombre: str, antes: dict, despues: dict) -> dict:
     if all(a is not None and b is not None for a, b in identidades) \
             and any(a != b for a, b in identidades):
         fila["atribuible"] = False
-        fila["nota"] = "IDENTIDAD_DEL_EJECUTOR_DISTINTA"
+        _nota(fila, "IDENTIDAD_DEL_EJECUTOR_DISTINTA")
 
     if antes["estado"] == APLICABLE and despues["estado"] == APLICABLE:
         cuenta_antes = Counter(antes.get("huellas_de_hallazgo") or [])
@@ -208,7 +259,7 @@ def _delta_de_ejecutor(nombre: str, antes: dict, despues: dict) -> dict:
 
     if antes["estado"] == APLICABLE:
         fila["atribuible"] = False
-        fila["nota"] = "PERDIDA_DE_MEDICION"
+        _nota(fila, "PERDIDA_DE_MEDICION")
         fila["hallazgos_de_base_perdidos"] = antes.get("hallazgos")
         return fila
 
@@ -219,18 +270,27 @@ def _delta_de_ejecutor(nombre: str, antes: dict, despues: dict) -> dict:
             # measurement of absence, not a hole. A hole is `NO_MEDIDO`, and only that is
             # `SIN_BASE_MEDIDA` -- otherwise adding the first TypeScript file next to a
             # diverging Python port would read as green.
-            fila["nota"] = "SUPERFICIE_NUEVA"
+            _nota(fila, "SUPERFICIE_NUEVA")
             fila["nuevos"] = sorted(despues.get("huellas_de_hallazgo") or [])
             return fila
-        fila["nota"] = "SIN_BASE_MEDIDA"
+        _nota(fila, "SIN_BASE_MEDIDA")
         fila["hallazgos_de_head_sin_base"] = despues.get("hallazgos")
         return fila
 
-    fila["nota"] = "SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS"
+    if NO_MEDIDO in (antes["estado"], despues["estado"]):
+        # A hole is not an absence, and only one of the two is green. `NO_APLICABLE` on both
+        # sides is a measurement of absence: the instrument looked and there was nothing of its
+        # universe. `NO_MEDIDO` is the instrument being pointed at the subject and not answering
+        # -- a timeout, a crash, a garbage line. Both used to land on the same note, so a run
+        # that timed out on head read exactly like a tree with nothing to measure: green.
+        fila["atribuible"] = False
+        _nota(fila, "MEDICION_NO_HECHA")
+        return fila
+    _nota(fila, "SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS")
     return fila
 
 
-def comparar(base: dict, head: dict) -> dict:
+def comparar(base: dict, head: dict, estricto: bool = False) -> dict:
     """The differential gate: verify both seals first, then say what the pull request changed.
 
     The seal is recomputed before a single field is read. A comparison over a receipt whose body
@@ -238,6 +298,10 @@ def comparar(base: dict, head: dict) -> dict:
     not matter what it says. Both receipts must also be the same schema: a v1 receipt has no
     census and cannot be differenced, and pretending otherwise would report every finding of the
     newer side as new.
+
+    `estricto` reads the same delta with a gate's eyes: a base that never answered stops being a
+    note about provenance and becomes RC 2. It is off by default because a pull request that adds
+    a surface where base had nothing to measure is normally the pull request's own business.
     """
     verificacion = {"base": verificar(base), "head": verificar(head)}
     esquema = {"base": base.get("schema"), "head": head.get("schema")}
@@ -258,50 +322,50 @@ def comparar(base: dict, head: dict) -> dict:
     }
     if not all(verificacion.values()) or not all(leyes_ok.values()) \
             or esquema["base"] != esquema["head"] or esquema["base"] != ESQUEMA:
-        delta["resumen"] = {"nuevos": 0, "resueltos": 0, "perdidas_de_medicion": 0,
-                            "ganancias_de_medicion": 0, "superficies_nuevas": 0,
-                            "no_atribuibles": 0}
-        delta["rc"], delta["veredicto"] = salida_de_comparacion(delta)
+        delta["resumen"] = _resumen_vacio()
+        delta["rc"], delta["veredicto"] = salida_de_comparacion(delta, estricto)
         return delta
 
     ejecutores_base = base.get("ejecutores") or {}
     ejecutores_head = head.get("ejecutores") or {}
     for nombre in sorted(set(ejecutores_base) | set(ejecutores_head)):
         if nombre not in ejecutores_base or nombre not in ejecutores_head:
-            delta["instrumentos"][nombre] = {
+            delta["instrumentos"][nombre] = _nota({
                 "estado_base": (ejecutores_base.get(nombre) or {}).get("estado"),
                 "estado_head": (ejecutores_head.get(nombre) or {}).get("estado"),
-                "nuevos": [], "resueltos": [], "atribuible": False,
-                "nota": "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS"}
+                "nuevos": [], "resueltos": [], "atribuible": False, "nota": None},
+                "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS")
             continue
         delta["instrumentos"][nombre] = _delta_de_ejecutor(
             nombre, ejecutores_base[nombre], ejecutores_head[nombre])
 
     filas = delta["instrumentos"].values()
-    nuevos = sum(len(f["nuevos"]) for f in filas if f["atribuible"])
-    resueltos = sum(len(f["resueltos"]) for f in filas if f["atribuible"])
-    perdidas = sum(1 for f in filas if f["nota"] == "PERDIDA_DE_MEDICION")
-    ganancias = sum(1 for f in filas if f["nota"] == "SIN_BASE_MEDIDA")
-    superficies = sum(1 for f in filas if f["nota"] == "SUPERFICIE_NUEVA")
-    no_atribuibles = sum(1 for f in filas
-                         if f["nota"] in ("IDENTIDAD_DEL_EJECUTOR_DISTINTA",
-                                          "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS"))
-    delta["resumen"] = {"nuevos": nuevos, "resueltos": resueltos,
-                        "perdidas_de_medicion": perdidas,
-                        "ganancias_de_medicion": ganancias,
-                        "superficies_nuevas": superficies,
-                        "no_atribuibles": no_atribuibles}
-    delta["rc"], delta["veredicto"] = salida_de_comparacion(delta)
+    resumen = _resumen_vacio()
+    resumen["nuevos"] = sum(len(f["nuevos"]) for f in filas if f["atribuible"])
+    resumen["resueltos"] = sum(len(f["resueltos"]) for f in filas if f["atribuible"])
+    # One pass, one table: a note raises exactly the counter the table names, and a counter that
+    # is not in the table cannot be raised. `Counter` because two notes may share a counter --
+    # an identity divergence and an instrument present on one side only are both "no atribuible".
+    for nota, cuantas in Counter(f["nota"] for f in filas if f["nota"]).items():
+        contador = NOTAS[nota]["contador"]
+        if contador:
+            resumen[contador] += cuantas
+    delta["resumen"] = resumen
+    delta["rc"], delta["veredicto"] = salida_de_comparacion(delta, estricto)
     return delta
 
 
-def salida_de_comparacion(delta: dict) -> tuple[int, str]:
+def salida_de_comparacion(delta: dict, estricto: bool = False) -> tuple[int, str]:
     """The comparison's exit code, with the same precedence discipline as the single receipt.
 
-    `3` before anything: an unreadable receipt is not a verdict. Then `2` for the two ways the
-    comparison stops being about the pull request -- a measurement that disappeared, or a delta
-    produced by different bytes than the ones in base. Only then `1`, a finding that was not in
-    base, and `0`. A patch that merely bumps an instrument is therefore never silently green.
+    `3` before anything: an unreadable receipt is not a verdict. Then the notes, in the published
+    order they carry in `NOTAS` -- a measurement that disappeared, an instrument that never
+    answered, a delta produced by different bytes than the ones in base. Only then `1`, a finding
+    that was not in base, and `0`. A patch that merely bumps an instrument is therefore never
+    silently green.
+
+    The precedence is not restated here: it is read off the table, so a note added there with an
+    exit code is gated without anyone remembering to add a branch.
     """
     if delta.get("verificacion") and not all(delta["verificacion"].values()):
         return 3, "SELLO_NO_RECOMPONE"
@@ -312,17 +376,21 @@ def salida_de_comparacion(delta: dict) -> tuple[int, str]:
     if delta.get("schema") and ESQUEMA not in (delta["schema"]["base"], delta["schema"]["head"]):
         return 3, "RECIBO_NO_COMPARABLE"
     resumen = delta.get("resumen") or {}
-    if resumen.get("perdidas_de_medicion"):
-        return 2, "PERDIDA_DE_MEDICION"
-    if resumen.get("no_atribuibles"):
-        return 2, "DELTA_NO_ATRIBUIBLE"
+    for lectura in sorted(NOTAS.values(), key=lambda lectura: lectura["orden"]):
+        contador = lectura["contador"]
+        if not contador or not resumen.get(contador):
+            continue
+        if estricto and "rc_estricto" in lectura:
+            return lectura["rc_estricto"], lectura["veredicto_estricto"]
+        if lectura["rc"]:
+            return lectura["rc"], lectura["veredicto"]
     if resumen.get("nuevos"):
         return 1, "REGRESION"
     return 0, "SIN_REGRESION"
 
 
 __all__ = ["construir", "verificar", "salida_global", "canonico", "escribir", "leyes",
-           "comparar", "salida_de_comparacion", "ESQUEMA"]
+           "comparar", "salida_de_comparacion", "ESQUEMA", "NOTAS"]
 
 
 def _self_check() -> int:  # pragma: no cover - exercised by the CLI flag, asserted by tests

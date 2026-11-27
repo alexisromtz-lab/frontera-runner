@@ -13,6 +13,13 @@ name: frontera
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      estricto_base:
+        description: >-
+          RC 2 cuando la base no midió un instrumento que head sí mide. Para rutas
+          congeladas; en pull_request la base sin medición sigue siendo RC 0.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -89,11 +96,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NUMERO: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          ESTRICTO: ${{ inputs.estricto_base || 'false' }}
         run: |
           set -u
+          # `--estricto-base` has a reader here and not only on the command line: a flag nobody
+          # can reach from CI is a degree of freedom that never gets exercised.
+          estricto=""
+          if [ "$ESTRICTO" = "true" ]; then estricto="--estricto-base"; fi
           # `--json` is a switch and writes to stdout: the file is a redirect, not an argument.
           rc=0
-          frontera-runner diff --base salida/base.json --head salida/head.json \
+          frontera-runner diff --base salida/base.json --head salida/head.json $estricto \
             --json --md salida/comentario.md > salida/delta.json || rc=$?
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           veredicto="NO_MEDIDO"

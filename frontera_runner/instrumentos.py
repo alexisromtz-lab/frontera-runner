@@ -357,17 +357,14 @@ def commit_de(repo: str) -> str | None:
     return hecho.stdout.strip() or None if hecho.returncode == 0 else None
 
 
-def huella_de_arbol(raiz: str) -> str | None:
-    """`sha256:` over a package's `.py` files, relative path and content, in sorted order.
+class _ArbolEnMovimiento(RuntimeError):
+    """The tree changed while it was being read. Not an error of the tree: an error of the attempt."""
 
-    A commit names the tree and the version names the release; neither names the bytes that
-    ran if someone edited a checkout. This digest does, and it is taken over relative paths so
-    it survives the same package being installed somewhere else.
-    """
-    if not os.path.isdir(raiz):
-        return None
+
+def _huella_una_pasada(raiz: str) -> str | None:
+    """One walk and one read. Raises `_ArbolEnMovimiento` if the tree moved underneath it."""
     archivos = []
-    for actual, dirs, nombres in os.walk(raiz):
+    for actual, dirs, nombres in os.walk(raiz, onerror=_levantar):
         dirs[:] = sorted(d for d in dirs if d != "__pycache__")
         for nombre in sorted(nombres):
             if nombre.endswith(".py"):
@@ -378,9 +375,45 @@ def huella_de_arbol(raiz: str) -> str | None:
     for ruta in sorted(archivos, key=lambda r: os.path.relpath(r, raiz).replace(os.sep, "/")):
         rel = os.path.relpath(ruta, raiz).replace(os.sep, "/")
         resumen.update(rel.encode("utf-8") + b"\x00")
-        with open(ruta, "rb") as f:
-            resumen.update(hashlib.sha256(f.read()).digest())
+        try:
+            with open(ruta, "rb") as f:
+                resumen.update(hashlib.sha256(f.read()).digest())
+        except OSError as error:
+            raise _ArbolEnMovimiento(ruta) from error
     return "sha256:" + resumen.hexdigest()
+
+
+def _levantar(error: OSError) -> None:
+    """`os.walk` swallows a directory it cannot list. That silence is the defect, so it is raised.
+
+    A subtree that vanished between the listing and the descent used to be dropped without a word,
+    and the digest that followed was a perfectly valid `sha256:` of a tree nobody has: an absence
+    dressed as a measurement.
+    """
+    raise _ArbolEnMovimiento(str(error)) from error
+
+
+def huella_de_arbol(raiz: str, intentos: int = 2) -> str | None:
+    """`sha256:` over a package's `.py` files, relative path and content, in sorted order.
+
+    A commit names the tree and the version names the release; neither names the bytes that
+    ran if someone edited a checkout. This digest does, and it is taken over relative paths so
+    it survives the same package being installed somewhere else.
+
+    A tree somebody is writing has no digest. A file that disappears between the walk and the read
+    would either break the walker -- and this ran uncaught for weeks, once in ~140 full suites --
+    or, if the vanished thing were a directory, yield a digest of a silently incomplete tree that
+    looks exactly like a measurement. So a raced walk is retried, and a tree that keeps moving
+    answers `None`: `NO_MEDIDO`, never a number that reads as one.
+    """
+    if not os.path.isdir(raiz):
+        return None
+    for _ in range(max(1, intentos)):
+        try:
+            return _huella_una_pasada(raiz)
+        except _ArbolEnMovimiento:
+            continue
+    return None
 
 
 def huella_de(repo: str, paquete: str) -> str | None:

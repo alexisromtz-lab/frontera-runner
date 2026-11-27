@@ -105,6 +105,13 @@ checked out under `src/` seal identically. Measured on 2026-11-28 over the four 
 `ts-py-anchor-guard@02e8fe3`: **four of four huellas equal** between the installed and the checked
 out copy, and the generator's huella equal too. Only `procedencia` and `commit` differ.
 
+A tree somebody is writing has no digest. The walk lists `.py` files and then reads them, so a file
+that a build removes in between used to raise `FileNotFoundError` out of the whole receipt — it did,
+once in about 140 full suites, and read as flake. A directory that vanished was worse: `os.walk`
+skips it silently and the digest that follows is a valid `sha256:` of a tree nobody has. The walk is
+retried, and a tree that keeps moving answers `null` — `NO_MEDIDO`, never a number that reads as
+one.
+
 ## The triage, and the reasons it publishes
 
 Before any subprocess, the subject is read once — manifests, languages, test files, whether it is
@@ -196,13 +203,22 @@ The order of the checks is the contract, because each one makes the next meaning
    the row is `PERDIDA_DE_MEDICION` with the count of findings that went unmeasured, and the gate
    exits `2`. Reading that as "0 findings, all fixed" is the false green this repository exists to
    refuse.
+
+   The same holds when neither side finished: an instrument that answered `NO_MEDIDO` — a timeout,
+   a crash, a line nobody can parse — is a hole, not an absence. A row with a hole on either side
+   is `MEDICION_NO_HECHA` and the gate exits `2`, because two sides that never measured cannot
+   agree that nothing regressed. Both sides `NO_APLICABLE` is the other thing: a measurement of
+   absence, and still green.
 3. **An absence that the pull request fills is a surface the pull request creates.** When an
    instrument was `NO_APLICABLE` in base — "nothing of mine to measure" — and is `APLICABLE` in
    head, every finding on that new surface is the pull request's: the row is `SUPERFICIE_NUEVA`,
    `atribuible: true`, and the gate exits `1`. A hole is not the same thing: a base that answered
    `NO_MEDIDO` never measured, so its findings may predate the change and the row stays
-   `SIN_BASE_MEDIDA` / `2`. Without this branch, adding the first TypeScript file next to a
-   diverging Python port would read as `SIN_REGRESION`. <!-- defecto: corrida 46076223056 ·
+   `SIN_BASE_MEDIDA` with attribution withdrawn — green by default, because a pull request that
+   adds the first module of a new language should not be taxed for having no history. A gate over
+   a frozen route asks for `--estricto-base` and gets `2` on exactly that row instead of a guess.
+   Without the surface branch, adding the first TypeScript file next to a diverging Python port
+   would read as `SIN_REGRESION`. <!-- defecto: corrida 46076223056 ·
    arreglo: corrida 46076838093, `REGRESION` RC 1 con `SUPERFICIE_NUEVA` publicado en el PR -->
 4. **A delta produced by different bytes is not about the pull request.** If an executor's
    `version`, `huella` or `procedencia` moved between the two receipts, the row is
@@ -217,13 +233,28 @@ The order of the checks is the contract, because each one makes the next meaning
 |---|---|
 | `0` | `SIN_REGRESION` — no finding in head that was not in base |
 | `1` | `REGRESION` — at least one new finding, named, including findings on a surface this PR created |
-| `2` | `PERDIDA_DE_MEDICION`, `SIN_BASE_MEDIDA` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR |
+| `2` | `PERDIDA_DE_MEDICION`, `MEDICION_NO_HECHA` or `DELTA_NO_ATRIBUIBLE` — the comparison stopped being about the PR; also `SIN_BASE_MEDIDA` under `--estricto-base` |
 | `3` | the receipt could not be read as a receipt: seal, laws or schema |
 | `20` | bad invocation (a receipt path that does not parse) |
 
 A finding that was already in base is not a regression, and a finding that appears because an
 instrument got *stricter* is `DELTA_NO_ATRIBUIBLE` rather than a regression — the gate refuses to
 attribute it and says why.
+
+### A note is a promise that something reads it
+
+The row notes and the exit codes used to be maintained in three places — the branch that wrote the
+note, the loop that counted it, and the function that turned the count into a code — and one note
+was in none of them. `SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS` was written by the classifier, read by
+nobody, and a delta whose only row carried it came out `0 SIN_REGRESION` while an instrument was
+timing out; the summary built for an unreadable receipt was a hand-written list that had already
+lagged the real one by a field.
+
+`recibo.NOTAS` is now the only place that pair lives. A note carries its counter, its exit code and
+its precedence, `comparar` builds the summary by walking that table, and `salida_de_comparacion`
+reads the code off it. `_nota()` refuses to write a note with no row, so a seventh note cannot be
+born without a reader; the test that walks the nine state pairs plus the two one-sided notes only
+witnesses what the mechanism already enforces.
 
 ## The age partition travels with the audit row
 
