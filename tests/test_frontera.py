@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -397,6 +398,52 @@ class ConsumidorDiferencial(Base):
         self.assertEqual(fila["nuevos"], [])
         self.assertEqual(delta["resumen"]["superficies_nuevas"], 0)
         self.assertEqual((delta["rc"], delta["veredicto"]), (0, "SIN_REGRESION"))
+
+    def test_la_medicion_no_depende_de_donde_vivan_los_arboles(self):
+        """Two clones of the same instruments, at different paths and different depths, one seal.
+
+        The promise the receipt makes is about bytes, not about a machine: where a checkout lives
+        and how much history it carries are properties of the observer. A seal that moved with
+        either would make two readers of one tree disagree, and the disagreement would be about
+        their disks.
+
+        `--depth 1` is the half that a plain clone cannot show: a shallow clone has the same HEAD
+        commit and a different number of commits behind it, so anything counting history diverges.
+        """
+        caja = tempfile.mkdtemp(prefix="frontera-invarianza-")
+        try:
+            origen = apoyo.crear_raiz(os.path.join(caja, "origen"))
+            # One commit in the fixture would make `--depth 1` and a full clone identical, and
+            # the depth half of this test would be measuring nothing. Two empty commits move the
+            # history without moving a single byte of any instrument.
+            for _ in range(2):
+                apoyo.git(origen, "commit", "-q", "--allow-empty", "-m", "ruido")
+            somero = os.path.join(caja, "a", "somero")
+            hondo = os.path.join(caja, "bbb", "c", "hondo")
+            apoyo.git(caja, "clone", "-q", "--depth", "1", "file://" + origen, somero)
+            apoyo.git(caja, "clone", "-q", "file://" + origen, hondo)
+
+            def commits(ruta: str) -> int:
+                salida = subprocess.run(["git", "-C", ruta, "rev-list", "--count", "HEAD"],
+                                        capture_output=True, text=True, check=True)
+                return int(salida.stdout.strip())
+
+            self.assertEqual((commits(somero), commits(hondo)), (1, 3))
+            s = apoyo.mixto(git_si=True)
+            self.sujetos.append(s)
+            uno, otro = recibo.construir(s.ruta, somero), recibo.construir(s.ruta, hondo)
+            self.assertEqual(uno["sello"], otro["sello"])
+            self.assertEqual(recibo.canonico(uno), recibo.canonico(otro))
+            for nombre in apoyo.MODULOS:
+                self.assertEqual(uno["ejecutores"][nombre]["commit"],
+                                 otro["ejecutores"][nombre]["commit"])
+            # The invariant is only worth asserting if the two runs really lived elsewhere.
+            for ruta in (somero, hondo, caja):
+                self.assertNotIn(ruta, recibo.canonico(uno))
+        finally:
+            import shutil
+
+            shutil.rmtree(caja, ignore_errors=True)
 
     def test_un_instrumento_que_no_responde_no_es_verde(self):
         """A hole is not an absence. `NO_MEDIDO` on either side stops the comparison being green.
