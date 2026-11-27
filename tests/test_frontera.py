@@ -549,6 +549,31 @@ class ConsumidorDiferencial(Base):
             with open(ruta_md, encoding="utf-8") as f:
                 self.assertIn("REGRESION", f.read())
 
+    def test_el_comando_diff_devuelve_tres_cuando_el_sello_no_recompone(self):
+        base, head = self.par()
+        with tempfile.TemporaryDirectory() as caja:
+            ruta_base = recibo.escribir(base, os.path.join(caja, "base.json"))
+            ruta_head = recibo.escribir(head, os.path.join(caja, "head.json"))
+            with open(ruta_head, encoding="utf-8") as f:
+                datos = json.load(f)
+            datos["sello"] = "0" * 64
+            with open(ruta_head, "w", encoding="utf-8") as f:
+                json.dump(datos, f, ensure_ascii=False)
+            ruta_md = os.path.join(caja, "diff.md")
+            guardado = sys.stdout
+            sys.stdout = open(os.devnull, "w", encoding="utf-8")
+            try:
+                rc = cli.main(["diff", "--base", ruta_base, "--head", ruta_head, "--md", ruta_md])
+            finally:
+                sys.stdout.close()
+                sys.stdout = guardado
+            # El código de salida del proceso es lo que consume una compuerta de CI: `comparar`
+            # ya devuelve 3, pero un `_diff` que lo colapsara a 1 publicaría una regresión
+            # donde la verdad es «nadie comprobó».
+            self.assertEqual(rc, cli.RC_INCONSISTENTE)
+            with open(ruta_md, encoding="utf-8") as f:
+                self.assertIn("NO RECOMPONE", f.read())
+
     def test_diff_sin_recibo_legible_es_aridad(self):
         with tempfile.TemporaryDirectory() as caja:
             basura = os.path.join(caja, "basura.json")
