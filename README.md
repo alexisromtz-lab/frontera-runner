@@ -202,7 +202,8 @@ The order of the checks is the contract, because each one makes the next meaning
    `atribuible: true`, and the gate exits `1`. A hole is not the same thing: a base that answered
    `NO_MEDIDO` never measured, so its findings may predate the change and the row stays
    `SIN_BASE_MEDIDA` / `2`. Without this branch, adding the first TypeScript file next to a
-   diverging Python port would read as `SIN_REGRESION`. <!-- medido: corrida 46076223056 -->
+   diverging Python port would read as `SIN_REGRESION`. <!-- defecto: corrida 46076223056 ·
+   arreglo: corrida 46076838093, `REGRESION` RC 1 con `SUPERFICIE_NUEVA` publicado en el PR -->
 4. **A delta produced by different bytes is not about the pull request.** If an executor's
    `version`, `huella` or `procedencia` moved between the two receipts, the row is
    `DELTA_NO_ATRIBUIBLE` and contributes nothing either way. Bumping an instrument is therefore
