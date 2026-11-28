@@ -1408,6 +1408,44 @@ class CensoDeCerosImplicitos(unittest.TestCase):
             self.assertEqual(ceros.salida_delta(ceros.delta(ceros.censar(base), ceros.censar(head))),
                              (ceros.RC_HUECO, "HUECO_DE_MEDICION_EN_LA_BASE"))
 
+    def test_las_cuatro_celdas_de_una_declaracion(self):
+        """Declarar una expresion no depende de como se escriba, y no se ensancha a una parecida.
+
+        Las cuatro celdas se midieron primero en `git-complement-audit` (run 46161720615) y viven
+        aqui para que la regresion no dependa de repetir el ejercicio en un arbol ajeno.
+        """
+        fuente = 'registro.get("saldo_pendiente", 0)'
+        normalizada = ast.unparse(ast.parse(fuente, mode="eval").body)
+        celdas = [
+            ("sin declarar", frozenset(), ceros.RC_HALLAZGOS),
+            ("literal del fuente", frozenset({fuente}), ceros.RC_OK),
+            ("forma ast.unparse", frozenset({normalizada}), ceros.RC_OK),
+            ("parecida con otro sujeto", frozenset({'otro.get("saldo_pendiente", 0)'}),
+             ceros.RC_HALLAZGOS),
+        ]
+        with tempfile.TemporaryDirectory() as caja:
+            base = os.path.join(caja, "base")
+            head = os.path.join(caja, "head")
+            os.makedirs(base)
+            os.makedirs(head)
+            with open(os.path.join(base, "motor.py"), "w", encoding="utf-8") as f:
+                f.write("import os\n")
+            with open(os.path.join(head, "motor.py"), "w", encoding="utf-8") as f:
+                f.write("import os\n\nsaldo = %s\n" % fuente)
+            for nombre, declarados, esperado in celdas:
+                with self.subTest(celda=nombre):
+                    diferencia = ceros.delta(ceros.censar(base, permitidos=declarados),
+                                            ceros.censar(head, permitidos=declarados))
+                    self.assertEqual(ceros.salida_delta(diferencia)[0], esperado)
+
+    def test_la_forma_no_es_el_texto_de_la_declaracion(self):
+        """El falsador de arriba: comparar por cadena cruda dejaria caer las celdas 2 y 3."""
+        doble = 'registro.get("saldo_pendiente", 0)'
+        simple = "registro.get('saldo_pendiente', 0)"
+        self.assertNotEqual(doble, simple)
+        self.assertEqual(ceros._forma(doble), ceros._forma(simple))
+        self.assertNotEqual(ceros._forma(doble), "TXT:" + doble)
+
 
 if __name__ == "__main__":
     unittest.main()
