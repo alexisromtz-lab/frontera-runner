@@ -312,24 +312,41 @@ It has no dependencies and no assumption about where it is imported from: instal
 for byte the digest produced from inside this repository.
 
 ```yaml
-# .github/workflows/ceros.yml — pin the commit, not a branch
+# .github/workflows/ceros.yml — pin the tag, not a branch
+on: [pull_request]
 jobs:
   ceros:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { path: head }
-      - uses: actions/checkout@v4
-        with: { ref: ${{ github.event.pull_request.base.sha }}, path: base }
-      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@<sha>"
-      - run: ceros-implicitos --base base head --permitidos "$PERMITIDAS"
+        with: { fetch-depth: 0 }
+      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@v0.1.0"
+      - run: git worktree add --detach /tmp/base "${{ github.event.pull_request.base.sha }}"
+      - run: ceros-implicitos --base /tmp/base .
 ```
 
-The first run will find zeros that predate the pull request — every tree has some, this package
-included until its own census became a test. Start by reading `ceros-implicitos base --json` and
-declaring, by name, the ones that are legitimate; the gate then measures only what the pull request
-adds. A declaration is a class, not a waiver: `--permitidos nuevos` excuses every `get('nuevos', 0)`
-and nothing else, and renaming the variable re-denounces the line.
+The zeros that predate the pull request are not a problem and not a waiver: the base tree is the
+minuend, so they subtract themselves and the gate measures only what the pull request adds. Nothing
+has to be declared on day one. What a tree sometimes does need is a declared *scope* — if it keeps
+tally dictionaries over a benchmark population, `--excluir bench` measures the product surface and
+says so out loud, which is not the same as excusing by name.
+
+### Measured on somebody else's repository
+
+The gate runs, on Ubuntu, in a repository that is not this one:
+[fiber-ast-lint](https://github.com/alexisromtz-lab/fiber-ast-lint) adopted it with a single file
+and no change to its own `ci.yml`.
+
+Green on a clean pull request — `SIN_CEROS_NUEVOS`, RC 0, `nuevos 0`, `permanecen 2` (two call
+tallies that predate the branch and subtract themselves):
+[runs/46106495910](https://github.com/alexisromtz-lab/fiber-ast-lint/actions/runs/46106495910).
+
+Red on a probe added on purpose — a module with `d.get("saldo_pendiente", 0)` — while the rest of
+that repository's checks stayed green:
+`CON_CEROS_NUEVOS`, RC 1, `nuevos 1`, and the finding named by file, key, shape and line:
+[runs/46106593465](https://github.com/alexisromtz-lab/fiber-ast-lint/actions/runs/46106593465).
+
+A green that never turns red has not shown that it measures, so both directions are published.
 
 ## The age partition travels with the audit row
 
@@ -385,7 +402,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, eighty-two tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, eighty-three tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
