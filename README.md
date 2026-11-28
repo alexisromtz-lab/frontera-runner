@@ -371,11 +371,15 @@ writes it.
 
 ### Measured on somebody else's repository
 
-Two repositories that are not this one run the gate on every pull request, both through the one-line
-reference and without touching their governed `ci.yml`:
-[fiber-ast-lint](https://github.com/alexisromtz-lab/fiber-ast-lint) (declared scope `bench,tests`)
-and [protocol-core](https://github.com/alexisromtz-lab/protocol-core) (no scope at all — its five
-pre-existing zeros subtract themselves).
+Three repositories that are not this one run the gate on every pull request, all through the
+one-line reference and without touching their governed `ci.yml`:
+[fiber-ast-lint](https://github.com/alexisromtz-lab/fiber-ast-lint) (declared scope `bench,tests`),
+[protocol-core](https://github.com/alexisromtz-lab/protocol-core) (no scope at all — its five
+pre-existing zeros subtract themselves) and
+[git-complement-audit](https://github.com/alexisromtz-lab/git-complement-audit) (two declared
+tallies, `roots.get(oid, 0)` and `roots.get(peeled, 0)`, where zero is the identity of a `max`; the
+`or 0` that could equally mean *not measured* is deliberately left undeclared and published as
+`permanecen 1`).
 
 Green on a clean pull request — `SIN_CEROS_NUEVOS`, RC 0, `nuevos 0`, `permanecen 2` (two call
 tallies that predate the branch and subtract themselves):
@@ -394,6 +398,15 @@ it did not skip the delta), and a probe through the same one line went red with
 
 A green that never turns red has not shown that it measures, so both directions are published — for
 the copy and for the reference.
+
+The third consumer is the one that found the last defect. In `git-complement-audit` a declaration
+copied from the source file —`registro.get("saldo", 0)`— left the gate red, because the node was
+compared as `ast.unparse` renders it, `registro.get('saldo', 0)`, and the delta table never prints
+the expression to copy. `v0.2.2` compares the declaration as an expression, so both spellings
+excuse and a declaration that merely looks alike still does not: green through the reference at
+[runs/46161720615](https://github.com/alexisromtz-lab/git-complement-audit/actions/runs/46161720615),
+and the four-cell matrix — undeclared `1`, source spelling `0`, `ast.unparse` spelling `0`,
+look-alike `1` — measured on that tree before the pull request.
 
 ## The age partition travels with the audit row
 
