@@ -1078,6 +1078,24 @@ class CatalogoDeNotas(unittest.TestCase):
             with self.assertRaises(KeyError, msg=que):
                 recibo.validar_notas(tabla)
 
+    def test_el_empate_en_el_orden_tiene_que_publicar_lo_mismo(self):
+        """Two notes may share a rank; they may not disagree about what the rank answers.
+
+        `salida_global` walks the table sorted by `orden` and returns the first note with a
+        non-zero counter, so a rank holding two notes with distinct verdicts is spent in the order
+        the dict literal happens to be written in -- a precedence nobody published. Today the two
+        notes at rank 2 agree on `(2, "DELTA_NO_ATRIBUIBLE", None, None)` and the tie is invisible;
+        this is what makes it observable the moment it stops being an equality.
+        """
+        tabla = {nota: dict(fila) for nota, fila in recibo.NOTAS.items()}
+        gemela = dict(tabla["IDENTIDAD_DEL_EJECUTOR_DISTINTA"])
+        tabla["NOTA_GEMELA"] = gemela
+        self.assertIs(recibo.validar_notas(tabla), tabla)
+
+        gemela["veredicto"] = "DELTA_EN_UN_LADO"
+        with self.assertRaisesRegex(KeyError, "empate sin precedencia"):
+            recibo.validar_notas(tabla)
+
     def test_el_nombre_de_una_nota_vive_en_un_solo_archivo(self):
         """A branch on a note name outside `recibo.py` is a second source of truth for the table.
 

@@ -40,7 +40,9 @@ IDENTIDAD_DE_EJECUTOR = ("version", "huella", "procedencia")
 #: only row carried it came out `0 SIN_REGRESION`. Worse, the early return for an unreadable
 #: receipt built its summary from a hand-written list that already lagged the real one by a field.
 #: A note is a promise that something reads it; `_nota` is where the promise is kept, and `orden`
-#: is the published precedence among the codes that tie.
+#: is the published precedence among the codes that tie. A rank may hold two notes only if they
+#: publish the same pair -- the tie is them being the same answer under two names, not a race that
+#: `sorted` settles by the order the dict literal happens to be written in.
 #:
 #: `detalle` is the same promise kept for the reader who only sees the comment: it used to be an
 #: `if fila["nota"] == ...` in `render.markdown_diff`, so a note added here was counted and gated
@@ -79,6 +81,9 @@ NOTAS = {
 #: first is a promise nobody finished making; a row carrying anything else is a field no reader
 #: will ever look at, which is the same defect seen from the other side.
 COLUMNAS_DE_NOTA = ("contador", "veredicto", "rc", "orden", "detalle")
+#: What a note publishes to the caller. Two notes at the same `orden` have to agree on all four or
+#: the precedence between them is the insertion order of this file and nobody published it.
+COLUMNAS_PUBLICADAS = ("rc", "veredicto", "rc_estricto", "veredicto_estricto")
 COLUMNAS_OPCIONALES = ("rc_estricto", "veredicto_estricto")
 
 
@@ -89,6 +94,12 @@ def validar_notas(tabla: dict | None = None) -> dict:
     checking is one pass over seven rows at import; the cost of not checking is a note that is
     counted and gated but arrives to the reader unexplained -- which is how the previous version of
     this file lost the paragraph for every note whose prose lived in `render`.
+
+    A second pass refuses a tie in `orden` that is not a genuine equality: `salida_global` walks the
+    table sorted by rank and returns the first note with a non-zero counter, so two notes sharing a
+    rank are spent in the order this file lists them. While both publish the same pair that order is
+    invisible; the day one of them gains a distinct `veredicto` or `rc_estricto`, the winner is
+    decided by a dict literal and no test would say so.
     """
     tabla = NOTAS if tabla is None else tabla
     for nota, lectura_de_la_nota in tabla.items():
@@ -100,6 +111,14 @@ def validar_notas(tabla: dict | None = None) -> dict:
         if faltan or sobran or sueltas:
             raise KeyError(f"nota incompleta en NOTAS: {nota!r} "
                            f"(faltan={faltan}, sobran={sobran}, estricto_medio={sueltas})")
+    rangos = {}
+    for nota, lectura_de_la_nota in tabla.items():
+        rango = lectura_de_la_nota["orden"]
+        publica = tuple(lectura_de_la_nota.get(columna) for columna in COLUMNAS_PUBLICADAS)
+        previa = rangos.setdefault(rango, (nota, publica))
+        if previa[1] != publica:
+            raise KeyError(f"empate sin precedencia en NOTAS: {previa[0]!r} y {nota!r} comparten "
+                           f"orden={rango!r} y publican distinto: {previa[1]} != {publica}")
     return tabla
 
 
@@ -445,7 +464,7 @@ def salida_de_comparacion(delta: dict, estricto: bool = False) -> tuple[int, str
 
 __all__ = ["construir", "verificar", "salida_global", "canonico", "escribir", "leyes",
            "comparar", "salida_de_comparacion", "ESQUEMA", "NOTAS", "COLUMNAS_DE_NOTA",
-           "lectura", "validar_notas"]
+           "lectura", "validar_notas", "COLUMNAS_PUBLICADAS"]
 
 
 def _self_check() -> int:  # pragma: no cover - exercised by the CLI flag, asserted by tests
