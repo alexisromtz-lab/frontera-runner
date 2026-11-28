@@ -218,6 +218,8 @@ The order of the checks is the contract, because each one makes the next meaning
    `SIN_BASE_MEDIDA` with attribution withdrawn — green by default, because a pull request that
    adds the first module of a new language should not be taxed for having no history. A gate over
    a frozen route asks for `--estricto-base` and gets `2` on exactly that row instead of a guess.
+   The strict column can only add severity — `validar_notas` refuses a `rc_estricto` below the
+   note's `rc` or equal to `0`, so a flag that exists to withdraw greens cannot sign one.
    Without the surface branch, adding the first TypeScript file next to a diverging Python port
    would read as `SIN_REGRESION`. <!-- defecto: corrida 46076223056 ·
    arreglo: corrida 46076838093, `REGRESION` RC 1 con `SUPERFICIE_NUEVA` publicado en el PR -->
@@ -314,7 +316,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, seventy-eight tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, seventy-nine tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
