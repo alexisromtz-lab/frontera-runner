@@ -23,6 +23,13 @@ por nombre.
 —`a.llamadas.get(k, 0)`— no cabe ahí: partirla la convierte en fragmentos que no casan con nada y
 el censo publica un número de permitidos que se lee como declaración ejercida. Esa forma viaja por
 `--permitir`, una por bandera, sin separador que la parta.
+
+Una declaración se coteja como **expresión**, no como texto. `ast.unparse` devuelve una ortografía
+—`d.get('k', 0)`— y el fuente guarda otra —`d.get("k", 0)`—; son el mismo nodo. Comparar texto
+obligaba a adivinar la ortografía que el ejecutable eligió, y en el delta esa cadena no se publica:
+medido el 28-Nov-2026 en un repo ajeno, la misma línea declarada tal como está escrita en el fuente
+seguía dando RC 1. Ahora se compara el árbol de cada declaración, así que vale lo que un humano
+copia del archivo.
 """
 
 from __future__ import annotations
@@ -57,8 +64,21 @@ def _conjunto(texto: str) -> frozenset:
     return frozenset(t for t in (x.strip() for x in texto.split(",")) if t)
 
 
+def _forma(declaracion: str) -> str:
+    """La huella de una declaración: su árbol si compila, su texto si no.
+
+    Una clave —`nuevos`— no es una expresión y no compila como tal; se compara por texto. Una
+    expresión se compara por árbol, para que la ortografía del fuente y la de `ast.unparse`
+    sean la misma declaración.
+    """
+    try:
+        return "AST:" + ast.dump(ast.parse(declaracion, mode="eval").body)
+    except SyntaxError:
+        return "TXT:" + declaracion
+
+
 def _ceros_de(arbol, relativo: str, permitidos) -> list:
-    """`permitidos` nombra lo declarado: la clave de un `get`, o la expresión exacta.
+    """`permitidos` nombra lo declarado: la clave de un `get`, o la expresión de la línea.
 
     Una clave nombra una clase —todos los `get('nuevos', 0)` del árbol—; una expresión nombra una
     línea. La expresión es la forma estrecha que hace falta cuando no hay clave que nombrar, como
@@ -82,7 +102,7 @@ def _ceros_de(arbol, relativo: str, permitidos) -> list:
                 and isinstance(argumento.value, str) else None
         if clave is not None and clave in permitidos:
             continue
-        if expresion in permitidos:
+        if expresion in permitidos or "AST:" + ast.dump(nodo) in permitidos:
             continue
         hallazgos.append({"archivo": relativo, "linea": nodo.lineno, "clave": clave,
                           "forma": "GET" if lectura else "OR", "expresion": expresion})
@@ -98,6 +118,8 @@ def censar(raiz, permitidos=frozenset(), excluidos=EXCLUIDOS) -> dict:
     hay clase que excusar — sólo la línea, si alguien la escribe entera.
     """
     raiz = os.path.abspath(raiz)
+    declarados = frozenset(permitidos)
+    cotejo = declarados | frozenset(_forma(p) for p in declarados)
     archivos = 0
     podados = []
     ilegibles = []
@@ -125,10 +147,10 @@ def censar(raiz, permitidos=frozenset(), excluidos=EXCLUIDOS) -> dict:
                 ilegibles.append({"archivo": relativo, "error": "LECTURA"})
                 continue
             archivos += 1
-            hallazgos.extend(_ceros_de(arbol, relativo, permitidos))
+            hallazgos.extend(_ceros_de(arbol, relativo, cotejo))
     hallazgos.sort(key=lambda h: (h["archivo"], h["linea"], h["expresion"]))
     return {"archivos": archivos, "podados": sorted(podados), "ilegibles": ilegibles,
-            "permitidos": sorted(permitidos), "hallazgos": hallazgos}
+            "permitidos": sorted(declarados), "hallazgos": hallazgos}
 
 
 def salida(censo: dict) -> tuple:

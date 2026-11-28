@@ -1266,6 +1266,32 @@ class CensoDeCerosImplicitos(unittest.TestCase):
                                          "--permitir", "r.llamadas.get(loc.fn, 0)", caja]),
                              ceros.RC_OK)
 
+    def test_una_declaracion_se_coteja_como_expresion_y_no_como_texto(self):
+        """The source spelling and the `ast.unparse` spelling are the same declaration.
+
+        Measured 28-Nov-2026 in a foreign repo: a `permitir:` line copied from the file
+        (`registro.get("saldo_pendiente", 0)`) left the gate red, because `ast.unparse` renders
+        the same node with single quotes and the delta publishes no expression to copy from.
+        Declaring a line the way a human reads it has to be enough.
+        """
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write('r = registro.get("saldo", 0)\n')
+            del_fuente = 'registro.get("saldo", 0)'
+            del_unparse = "registro.get('saldo', 0)"
+            self.assertEqual(ceros.main(["--permitir", del_fuente, caja]), ceros.RC_OK)
+            self.assertEqual(ceros.main(["--permitir", del_unparse, caja]), ceros.RC_OK)
+
+    def test_otra_expresion_no_excusa_aunque_se_parezca(self):
+        """Comparing trees narrows the match; it does not widen it."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write('r = registro.get("saldo", 0)\n')
+            self.assertEqual(ceros.main(["--permitir", 'registro.get("otro", 0)', caja]),
+                             ceros.RC_HALLAZGOS)
+            self.assertEqual(ceros.main(["--permitidos", "saldo_pendiente", caja]),
+                             ceros.RC_HALLAZGOS)
+
     def test_el_censo_baja_por_subdirectorios_y_poda_lo_declarado(self):
         """Depth is part of the domain: a `0` on one directory is not a `0` on the tree."""
         with tempfile.TemporaryDirectory() as caja:
