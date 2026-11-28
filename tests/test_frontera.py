@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 import unittest.mock
 
@@ -16,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import apoyo  # noqa: E402
 
 from frontera_runner import instrumentos as inst  # noqa: E402
+import frontera_runner  # noqa: E402
 from frontera_runner import cli, recibo, render, runner  # noqa: E402
 from frontera_runner import ceros  # noqa: E402
 
@@ -923,6 +925,19 @@ class Huellas(unittest.TestCase):
     def test_version_ausente_es_no_medido_y_no_una_cadena_vacia(self):
         with tempfile.TemporaryDirectory() as caja:
             self.assertIsNone(inst.version_de(caja, "pkg"))
+
+    def test_las_dos_versiones_del_repositorio_son_la_misma(self):
+        """`v0.2.0` nacio sobre un arbol que decia `0.1.0`, y ningun lector lo vio.
+
+        La version vive en dos ficheros — `pyproject.toml` y `__init__.py` — y nada los comparaba,
+        asi que el tag pudo nombrar una version que ningun artefacto de ese commit reproducia. Este
+        es el lector que faltaba: si los dos numeros divergen, el error se ve antes de etiquetar,
+        no despues de publicar.
+        """
+        raiz = os.path.dirname(os.path.dirname(os.path.abspath(runner.__file__)))
+        with open(os.path.join(raiz, "pyproject.toml"), "rb") as f:
+            manifiesto = tomllib.load(f)["project"]["version"]
+        self.assertEqual(frontera_runner.__version__, manifiesto)
 
     def test_huella_cambia_con_el_contenido(self):
         with tempfile.TemporaryDirectory() as caja:

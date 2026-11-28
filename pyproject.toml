@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "frontera-runner"
-version = "0.1.0"
+version = "0.2.0"
 description = "One composite run of four frontier instruments, one deterministic receipt, one Markdown check per pull request"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -22,6 +22,11 @@ dependencies = []
 [project.scripts]
 frontera-runner = "frontera_runner.cli:main"
 ceros-implicitos = "frontera_runner.ceros:main"
+
+[project.urls]
+Homepage = "https://github.com/alexisromtz-lab/frontera-runner"
+Source = "https://github.com/alexisromtz-lab/frontera-runner"
+"Reusable workflow" = "https://github.com/alexisromtz-lab/frontera-runner/blob/main/.github/workflows/reusable-ceros.yml"
 
 [tool.setuptools]
 packages = ["frontera_runner"]
