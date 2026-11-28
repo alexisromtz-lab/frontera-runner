@@ -12,6 +12,7 @@ frontera-runner <sujeto>                                 # Markdown for a PR che
 frontera-runner <sujeto> --json                          # the canonical receipt
 frontera-runner diff --base b.json --head h.json         # the gate: what the PR changed
 ceros-implicitos <árbol>                                 # where a tree writes a zero it did not measure
+ceros-implicitos --base <base> <head>                    # the gate for that census: what the change added
 ```
 
 ## Why this exists
@@ -262,6 +263,74 @@ a note against a literal: it asks the table for the paragraph, which is why an e
 explained. The tests that walk the nine state pairs and the whole catalogue only witness what the
 mechanism already enforces.
 
+## The portable reader: `ceros-implicitos`
+
+The four instruments audit *this* corpus and need four sibling clones to do it. The census needs
+nothing: one tree, one standard library, no configuration. It answers a single question that
+outlives the corpus — **where does a tree write a zero it never measured?** — and it answers it the
+same way on a checkout it has never seen:
+
+```
+ceros-implicitos <árbol> [--json]              # the census, with its denominator
+ceros-implicitos --base <base> <head> [--json] # the delta: what the change added
+```
+
+A finding is a `get(k, 0)` or an `k or 0`: a field that exists, counts zero, and is read
+downstream as *clean*. A zero written by hand is not a measurement, it is an assertion, and the
+consumer cannot tell the two apart. The census publishes `archivos`, `podados` and `ilegibles`
+beside its findings because a `0` without a denominator does not say *none* — it says *not looked*.
+
+Two copies of the same tree at different paths and depths census to the same bytes: where a tree
+lives is the observer's property, what it writes is the tree's. Measured on two clones of one
+Python service at depth one and three, and on the foreign trees this package was pointed at while
+it was written — 36 files and 5 findings on one, 56 files and 10 on another, each difference in the
+denominator explained by `podados` and none of it written.
+
+### The gate is the difference of two censuses
+
+A count is a diagnosis; a pull request needs a verdict. `--base` subtracts the two censuses by
+**class** — file, key, shape — and never by line, because a refactor that moves a line has added
+nothing and must not fail a job:
+
+| code | meaning |
+|---|---|
+| `0` | `SIN_CEROS_NUEVOS` — the change adds no zero of a class the base did not already carry |
+| `1` | `CON_CEROS_NUEVOS` — it does, and every new class is named with its file and its lines |
+| `2` | the difference has no minuend or no subtrahend: `SIN_SUPERFICIE_EN_LA_BASE`, `SIN_SUPERFICIE_EN_HEAD`, `HUECO_DE_MEDICION_EN_*` |
+| `20` | bad invocation — a path that is not a directory |
+
+The hole outranks the finding here, unlike the single-tree census: if a side could not be read the
+difference is unknown, and an unknown published as `0` is the false green the census exists to
+refuse. A zero that moves from one file to another is a closure *and* an opening, because the file
+is part of what the zero asserts. `--permitidos` accepts the classes someone has declared — a key,
+or a whole expression for the `or 0` form that has no key to name — and applies to both sides.
+
+### Use it in your repository
+
+It has no dependencies and no assumption about where it is imported from: installed into a clean
+3.11 environment it runs from `/` under `env -i`, and the census of a foreign tree reproduces byte
+for byte the digest produced from inside this repository.
+
+```yaml
+# .github/workflows/ceros.yml — pin the commit, not a branch
+jobs:
+  ceros:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: head }
+      - uses: actions/checkout@v4
+        with: { ref: ${{ github.event.pull_request.base.sha }}, path: base }
+      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@<sha>"
+      - run: ceros-implicitos --base base head --permitidos "$PERMITIDAS"
+```
+
+The first run will find zeros that predate the pull request — every tree has some, this package
+included until its own census became a test. Start by reading `ceros-implicitos base --json` and
+declaring, by name, the ones that are legitimate; the gate then measures only what the pull request
+adds. A declaration is a class, not a waiver: `--permitidos nuevos` excuses every `get('nuevos', 0)`
+and nothing else, and renaming the variable re-denounces the line.
+
 ## The age partition travels with the audit row
 
 `git-complement-audit` dates every row it reports by the newest ref tip whose tree still holds that
@@ -316,7 +385,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, seventy-nine tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, eighty-two tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```

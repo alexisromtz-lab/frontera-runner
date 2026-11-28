@@ -12,6 +12,12 @@ miró, y las dos cosas se leen igual. Por eso el censo publica su denominador �
 El objeto tampoco lleva rutas absolutas: dos clones del mismo árbol, en distinta ruta y distinta
 profundidad, tienen que censar byte a byte lo mismo. Dónde vive un árbol es propiedad del
 observador; qué escribe, del árbol.
+
+Un censo es un diagnóstico; un delta es una puerta. `delta(base, head)` resta dos censos por
+**clase** de cero —archivo, clave y forma—, nunca por línea: mover una línea, o renombrar el
+diccionario del que se lee, no añade un cero y no puede hacer fallar una compuerta. La clase es la
+misma granularidad con la que `--permitidos` excusa: lo que se puede declarar por nombre se cuenta
+por nombre.
 """
 
 from __future__ import annotations
@@ -73,8 +79,8 @@ def _ceros_de(arbol, relativo: str, permitidos) -> list:
             continue
         if expresion in permitidos:
             continue
-        hallazgos.append({"archivo": relativo, "linea": nodo.lineno,
-                          "clave": clave, "expresion": expresion})
+        hallazgos.append({"archivo": relativo, "linea": nodo.lineno, "clave": clave,
+                          "forma": "GET" if lectura else "OR", "expresion": expresion})
     return hallazgos
 
 
@@ -136,6 +142,93 @@ def salida(censo: dict) -> tuple:
     return RC_OK, "SIN_HALLAZGOS"
 
 
+def _clase(hallazgo: dict) -> tuple:
+    """Lo que un cero es cuando el árbol se mueve: dónde, sobre qué clave, de qué forma."""
+    return (hallazgo["archivo"], hallazgo["clave"], hallazgo["forma"])
+
+
+def _por_clase(censo: dict) -> dict:
+    clases = {}
+    for hallazgo in censo["hallazgos"]:
+        clases.setdefault(_clase(hallazgo), []).append(hallazgo["linea"])
+    return {clave: sorted(lineas) for clave, lineas in clases.items()}
+
+
+def _dominio(censo: dict) -> dict:
+    """El denominador de cada lado, en el mismo objeto que su resta: un delta sin él no vale."""
+    return {"archivos": censo["archivos"], "hallazgos": len(censo["hallazgos"]),
+            "ilegibles": len(censo["ilegibles"]), "podados": len(censo["podados"])}
+
+
+def delta(base: dict, head: dict) -> dict:
+    """Lo que el cambio añadió y lo que cerró, por clase de cero y no por línea.
+
+    La resta es de multiconjuntos: un archivo con dos `get('nuevos', 0)` y luego tres tiene un
+    cero nuevo, y uno con dos que sigue con dos no tiene ninguno aunque las líneas se hayan
+    movido. Un cero que cambia de archivo es un cierre y una apertura, porque el archivo es parte
+    de lo que el cero afirma.
+
+    `lineas` publica las del lado que las conserva —head para lo nuevo, base para lo cerrado—, no
+    las que llegaron: dos líneas idénticas son una sola clase, y con tres líneas en el archivo el
+    censo no puede decir cuál de ellas es la que apareció. `veces` es el exceso, y es lo que cuenta.
+    """
+    clases_base = _por_clase(base)
+    clases_head = _por_clase(head)
+    nuevos = [{"archivo": clave[0], "clave": clave[1], "forma": clave[2],
+               "veces": len(lineas) - len(clases_base.get(clave, [])), "lineas": lineas}
+              for clave, lineas in clases_head.items() if len(lineas) > len(clases_base.get(clave, []))]
+    cerrados = [{"archivo": clave[0], "clave": clave[1], "forma": clave[2],
+                 "veces": len(lineas) - len(clases_head.get(clave, [])), "lineas": lineas}
+                for clave, lineas in clases_base.items() if len(lineas) > len(clases_head.get(clave, []))]
+    permanecen = sum(min(len(l), len(clases_head.get(c, []))) for c, l in clases_base.items())
+    orden = lambda fila: (fila["archivo"], fila["clave"] or "", fila["forma"])
+    return {"base": _dominio(base), "head": _dominio(head),
+            "nuevos": sorted(nuevos, key=orden), "cerrados": sorted(cerrados, key=orden),
+            "permanecen": permanecen}
+
+
+def salida_delta(diferencia: dict) -> tuple:
+    """El código de salida de la resta, con el hueco por delante del hallazgo.
+
+    Un lado sin superficie, o con archivos que no se pudieron leer, deja la resta sin denominador:
+    publicar `RC 0` porque `nuevos` quedó vacío sería leer un cálculo incompleto como una limpia.
+    Por eso el hueco vence al hallazgo, al revés que en `salida` —donde el censo de un lado sí sabe
+    cuántos hallazgos hay aunque haya un ilegible—, porque aquí lo que falta es el minuendo.
+    """
+    for lado in ("base", "head"):
+        if diferencia[lado]["archivos"] == 0 and diferencia[lado]["ilegibles"] == 0:
+            return RC_HUECO, "SIN_SUPERFICIE_EN_LA_BASE" if lado == "base" else "SIN_SUPERFICIE_EN_HEAD"
+        if diferencia[lado]["ilegibles"]:
+            return RC_HUECO, "HUECO_DE_MEDICION_EN_LA_BASE" if lado == "base" else "HUECO_DE_MEDICION_EN_HEAD"
+    if diferencia["nuevos"]:
+        return RC_HALLAZGOS, "CON_CEROS_NUEVOS"
+    return RC_OK, "SIN_CEROS_NUEVOS"
+
+
+def texto_delta(diferencia: dict) -> str:
+    """La lectura humana de la resta, con los dos denominadores a la vista."""
+    codigo, motivo = salida_delta(diferencia)
+    nuevos = sum(fila["veces"] for fila in diferencia["nuevos"])
+    cerrados = sum(fila["veces"] for fila in diferencia["cerrados"])
+    lineas = [
+        f"# Delta de ceros implícitos · `{motivo}` · RC `{codigo}`",
+        "",
+        f"nuevos `{nuevos}` · cerrados `{cerrados}` · permanecen `{diferencia['permanecen']}`",
+        "",
+        "| lado | archivos | hallazgos | ilegibles | podados |",
+        "|---|---|---|---|---|",
+    ]
+    for lado in ("base", "head"):
+        dominio = diferencia[lado]
+        lineas.append(f"| `{lado}` | {dominio['archivos']} | {dominio['hallazgos']} | "
+                      f"{dominio['ilegibles']} | {dominio['podados']} |")
+    if diferencia["nuevos"]:
+        lineas += ["", "| archivo | clave | forma | veces | líneas |", "|---|---|---|---|---|"]
+        lineas += [f"| `{f['archivo']}` | `{f['clave']}` | {f['forma']} | {f['veces']} | "
+                   f"{', '.join(str(n) for n in f['lineas'])} |" for f in diferencia["nuevos"]]
+    return "\n".join(lineas) + "\n"
+
+
 def texto(censo: dict) -> str:
     """La lectura humana del mismo objeto que consume `--json`."""
     codigo, motivo = salida(censo)
@@ -163,6 +256,8 @@ def main(argv=None) -> int:
         prog="ceros-implicitos",
         description="Censo de ceros escritos a mano sobre un árbol, con su dominio declarado.")
     parser.add_argument("raiz", nargs="?", default=".", help="árbol a censar (por defecto .)")
+    parser.add_argument("--base", default=None,
+                        help="árbol de la base; con --base, RAIZ es el head y se publica el delta")
     parser.add_argument("--permitidos", default="",
                         help="claves de get cuyo cero está declarado, separadas por comas")
     parser.add_argument("--excluir", default="",
@@ -170,14 +265,21 @@ def main(argv=None) -> int:
     parser.add_argument("--json", action="store_true", help="publicar el censo canónico")
     args = parser.parse_args(argv)
 
-    if not os.path.isdir(args.raiz):
-        print(f"ceros-implicitos: error: '{args.raiz}' no es un directorio", file=sys.stderr)
-        return RC_ARIDAD
+    for ruta in (args.raiz, args.base):
+        if ruta is not None and not os.path.isdir(ruta):
+            print(f"ceros-implicitos: error: '{ruta}' no es un directorio", file=sys.stderr)
+            return RC_ARIDAD
 
-    censo = censar(args.raiz, permitidos=_conjunto(args.permitidos),
-                   excluidos=EXCLUIDOS + tuple(_conjunto(args.excluir)))
-    sys.stdout.write(canonico(censo) if args.json else texto(censo))
-    return salida(censo)[0]
+    permitidos = _conjunto(args.permitidos)
+    excluidos = EXCLUIDOS + tuple(_conjunto(args.excluir))
+    if args.base is None:
+        censo = censar(args.raiz, permitidos=permitidos, excluidos=excluidos)
+        sys.stdout.write(canonico(censo) if args.json else texto(censo))
+        return salida(censo)[0]
+    diferencia = delta(censar(args.base, permitidos=permitidos, excluidos=excluidos),
+                       censar(args.raiz, permitidos=permitidos, excluidos=excluidos))
+    sys.stdout.write(canonico(diferencia) if args.json else texto_delta(diferencia))
+    return salida_delta(diferencia)[0]
 
 
 if __name__ == "__main__":
