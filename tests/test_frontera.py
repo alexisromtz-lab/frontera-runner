@@ -1096,6 +1096,34 @@ class CatalogoDeNotas(unittest.TestCase):
         with self.assertRaisesRegex(KeyError, "empate sin precedencia"):
             recibo.validar_notas(tabla)
 
+    def test_un_modo_estricto_que_afloja_no_se_declara(self):
+        """`--estricto-base` only adds severity; a strict rank that subtracts is the flag's own green.
+
+        The live pair must keep passing --`SIN_BASE_MEDIDA` is `0` normally and `2` under a frozen
+        route, which is what `test_el_modo_estricto_convierte_una_base_sin_medida_en_rc_dos` reads
+        as behaviour-- and the three that must not are a strict answer below the normal code, a
+        strict answer of `0` on a note that normally answers `2`, and a strict answer of `0` on a
+        note that already answers `0`: the last one is the identity, a flag that changes nothing.
+        """
+        tabla = {nota: dict(fila) for nota, fila in recibo.NOTAS.items()}
+        self.assertIs(recibo.validar_notas(tabla), tabla)
+
+        floja = dict(tabla["MEDICION_NO_HECHA"], orden=6)
+        floja["veredicto_estricto"] = "SIN_REGRESION"
+        tabla["NOTA_FLOJA"] = floja
+        for rc_estricto, que in ((1, "por debajo del normal"), (0, "en cero sobre un rojo")):
+            floja["rc_estricto"] = rc_estricto
+            with self.assertRaisesRegex(KeyError, "modo estricto que afloja", msg=que):
+                recibo.validar_notas(tabla)
+        floja["rc_estricto"] = 2
+        self.assertIs(recibo.validar_notas(tabla), tabla)
+
+        neutra = dict(tabla["SIN_BASE_MEDIDA"], orden=7)
+        neutra["rc_estricto"] = 0
+        tabla["NOTA_NEUTRA"] = neutra
+        with self.assertRaisesRegex(KeyError, "modo estricto que afloja", msg="identidad"):
+            recibo.validar_notas(tabla)
+
     def test_el_nombre_de_una_nota_vive_en_un_solo_archivo(self):
         """A branch on a note name outside `recibo.py` is a second source of truth for the table.
 

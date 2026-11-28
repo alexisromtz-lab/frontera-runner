@@ -51,6 +51,8 @@ IDENTIDAD_DE_EJECUTOR = ("version", "huella", "procedencia")
 #:
 #: `rc_estricto` is the same note read by a frozen path: a base that never answered is not a
 #: statement about the pull request, and a gate on a frozen route would rather stop than guess.
+#: Endurecer es la unica direccion: `rc_estricto >= rc` y nunca `0`, o el flag que existe para
+#: quitar verdes estaria firmando uno.
 NOTAS = {
     "PERDIDA_DE_MEDICION": {"contador": "perdidas_de_medicion",
                             "veredicto": "PERDIDA_DE_MEDICION", "rc": 2, "orden": 0,
@@ -100,6 +102,11 @@ def validar_notas(tabla: dict | None = None) -> dict:
     rank are spent in the order this file lists them. While both publish the same pair that order is
     invisible; the day one of them gains a distinct `veredicto` or `rc_estricto`, the winner is
     decided by a dict literal and no test would say so.
+
+    And a row may not declare a strict rank that loosens: `--estricto-base` exists so a frozen route
+    stops where a normal route would continue, so `rc_estricto` is at least `rc` and never `0`. A
+    strict answer of `0` is the identity, and a strict answer below the normal one is the flag
+    signing the green it was added to withdraw.
     """
     tabla = NOTAS if tabla is None else tabla
     for nota, lectura_de_la_nota in tabla.items():
@@ -111,6 +118,12 @@ def validar_notas(tabla: dict | None = None) -> dict:
         if faltan or sobran or sueltas:
             raise KeyError(f"nota incompleta en NOTAS: {nota!r} "
                            f"(faltan={faltan}, sobran={sobran}, estricto_medio={sueltas})")
+        normal = lectura_de_la_nota["rc"]
+        estricto = lectura_de_la_nota.get("rc_estricto")
+        if estricto is not None and (estricto <= 0 or estricto < normal):
+            raise KeyError(f"modo estricto que afloja en NOTAS: {nota!r} publica rc={normal!r} y "
+                           f"rc_estricto={estricto!r}; un rango estricto endurece (>= rc) y "
+                           f"nunca es 0")
     rangos = {}
     for nota, lectura_de_la_nota in tabla.items():
         rango = lectura_de_la_nota["orden"]

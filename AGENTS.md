@@ -65,8 +65,11 @@ This repo knows them only by their command line and their JSON.
    so `render` never compares `fila["nota"]` against a literal, and `validar_notas()` refuses an
    incomplete row at import. It also refuses a tie in `orden` whose two notes do not publish the
    same `(rc, veredicto, rc_estricto, veredicto_estricto)`: `salida_global` spends a rank in the
-   order this file lists it, so a tie that disagreed would pick a winner by dict literal. Check:
-   `ConsumidorDiferencial` (nine state pairs) and `CatalogoDeNotas`.
+   order this file lists it, so a tie that disagreed would pick a winner by dict literal. And it
+   refuses a strict rank that loosens — `rc_estricto >= rc` and never `0` — because `--estricto-base`
+   exists so a frozen route stops where a normal one continues, and a strict `0` is the flag signing
+   the green it was added to withdraw. Check: `ConsumidorDiferencial` (nine state pairs) and
+   `CatalogoDeNotas`.
 9. **A digest is only taken over a tree that holds still.** `huella_de_arbol` retries a walk whose
    files moved under it and answers `null` if they keep moving; `os.walk`'s silence about a
    directory it cannot list is turned into a retry, never into a smaller digest. Check:
@@ -102,7 +105,7 @@ This repo knows them only by their command line and their JSON.
 
 ```bash
 python -m frontera_runner.cli --self-test              # 3 properties, RC 0
-python -m unittest discover -s tests                   # 78 tests, RC 0
+python -m unittest discover -s tests                   # 79 tests, RC 0
 python -m frontera_runner.ceros frontera_runner        # 0 findings, RC 0
 ```
 
