@@ -61,7 +61,10 @@ This repo knows them only by their command line and their JSON.
    resolved finding never fires the gate, and a lost measurement is never credited as one.
    The pair *note → counter → exit code* lives only in `recibo.NOTAS`, and `_nota()` refuses to
    write a note with no row: a note nobody counts used to be exactly how one false green was born.
-   Check: `ConsumidorDiferencial`, including the walk over the nine state pairs.
+   The same row carries the paragraph the comment shows (`detalle`, `None` when a note owes none),
+   so `render` never compares `fila["nota"]` against a literal, and `validar_notas()` refuses an
+   incomplete row at import. Check: `ConsumidorDiferencial` (nine state pairs) and
+   `CatalogoDeNotas`.
 9. **A digest is only taken over a tree that holds still.** `huella_de_arbol` retries a walk whose
    files moved under it and answers `null` if they keep moving; `os.walk`'s silence about a
    directory it cannot list is turned into a retry, never into a smaller digest. Check:

@@ -999,5 +999,113 @@ class Huellas(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(raiz, os.path.basename(repo))))
 
 
+class CatalogoDeNotas(unittest.TestCase):
+    """Four dimensions, one table: a note that is counted is also gated and explained.
+
+    This closes the last of the three loci from the presentation side. `render.markdown_diff` used
+    to decide a paragraph with `if fila["nota"] == "..."`, so a note declared in `NOTAS` was
+    counted, gated and published with no explanation: measured against `307ee63`, an eighth note
+    added to the catalogue came out as a bare `NOTA_OCTAVA` row under `## Detalle` with nothing
+    beneath it, and no test noticed. The paragraph now lives in the row it explains.
+    """
+
+    def delta_de(self, nota, nuevos=("h1", "h2"), resueltos=("h3",)):
+        fila = {"estado_base": "APLICABLE", "estado_head": "APLICABLE", "nuevos": list(nuevos),
+                "resueltos": list(resueltos), "atribuible": True, "nota": nota}
+        resumen = recibo._resumen_vacio()
+        resumen["nuevos"] = len(nuevos)
+        resumen["resueltos"] = len(resueltos)
+        contador = recibo.NOTAS[nota]["contador"] if nota else None
+        if contador:
+            resumen[contador] = 1
+        delta = {"veredicto": "SIN_REGRESION", "rc": 0, "resumen": resumen,
+                 "sujeto": {"base": "a" * 40, "head": "b" * 40},
+                 "instrumentos": {"git-complement-audit": fila},
+                 "verificacion": {"base": True, "head": True},
+                 "sello": {"base": "sha256:" + "1" * 64, "head": "sha256:" + "2" * 64}}
+        return fila, delta
+
+    def test_toda_nota_del_catalogo_llega_explicada_al_comentario(self):
+        """Walked, not listed: a note added to the table is covered by this test on the same edit.
+
+        The test asks the table what every note owes the reader, so it cannot fall behind it. A row
+        with no paragraph must say so with `None` -- and then no paragraph is invented for it.
+        """
+        for nota, descriptor in sorted(recibo.NOTAS.items()):
+            fila, delta = self.delta_de(nota)
+            comentario = render.markdown_diff(delta)
+            self.assertIn(f"| {nota} |", comentario, nota)
+            parrafo = render._parrafo(fila)
+            if descriptor["detalle"] is None:
+                self.assertIsNone(parrafo, nota)
+                continue
+            esperado = descriptor["detalle"].format(
+                nuevos=len(fila["nuevos"]), resueltos=len(fila["resueltos"]))
+            self.assertEqual(parrafo, esperado, nota)
+            self.assertIn(esperado, comentario, nota)
+
+    def test_una_nota_sin_descriptor_completo_no_se_declara(self):
+        """Four shapes of incomplete row, refused at import time rather than at read time.
+
+        A missing column is a promise nobody finished; a column nobody reads is the same defect
+        seen from the other side -- and both end the same way, with a note that reaches a reader
+        unexplained. `rc_estricto` without its veredicto is the version that would only fail when
+        a frozen gate happened to hit it.
+        """
+        completa = {nota: dict(fila) for nota, fila in recibo.NOTAS.items()}
+        self.assertIs(recibo.validar_notas(completa), completa)
+
+        def sin_detalle(tabla):
+            del tabla["MEDICION_NO_HECHA"]["detalle"]
+
+        def columna_muerta(tabla):
+            tabla["MEDICION_NO_HECHA"]["prosa"] = "- x"
+
+        def estricto_a_medias(tabla):
+            tabla["MEDICION_NO_HECHA"]["rc_estricto"] = 2
+
+        def octava(tabla):
+            tabla["NOTA_OCTAVA"] = {"contador": None, "veredicto": None, "rc": 0, "orden": 6}
+
+        for mutacion, que in ((sin_detalle, "sin `detalle`"),
+                              (columna_muerta, "con una columna que nadie lee"),
+                              (estricto_a_medias, "con `rc_estricto` y sin su veredicto"),
+                              (octava, "una octava nota declarada a medias")):
+            tabla = {nota: dict(fila) for nota, fila in recibo.NOTAS.items()}
+            mutacion(tabla)
+            with self.assertRaises(KeyError, msg=que):
+                recibo.validar_notas(tabla)
+
+    def test_el_nombre_de_una_nota_vive_en_un_solo_archivo(self):
+        """A branch on a note name outside `recibo.py` is a second source of truth for the table.
+
+        Measured over the package, not asserted by hand: prose and docstrings may name a note, but
+        code may not -- the day a module compares `fila["nota"]` against a literal, a note added to
+        the catalogue drops out of that module silently, and this is what notices.
+        """
+        import ast
+        import pathlib
+
+        paquete = pathlib.Path(render.__file__).parent
+        docstrings, hallazgos = set(), []
+        for ruta in sorted(paquete.glob("*.py")):
+            if ruta.name == "recibo.py":
+                continue
+            arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+            for nodo in ast.walk(arbol):
+                cuerpo = getattr(nodo, "body", None)
+                con_docstring = isinstance(
+                    nodo, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                if con_docstring and cuerpo and isinstance(cuerpo[0], ast.Expr) \
+                        and isinstance(cuerpo[0].value, ast.Constant) \
+                        and isinstance(cuerpo[0].value.value, str):
+                    docstrings.add(id(cuerpo[0].value))
+            for nodo in ast.walk(arbol):
+                if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str) \
+                        and id(nodo) not in docstrings and nodo.value in recibo.NOTAS:
+                    hallazgos.append(f"{ruta.name}:{nodo.lineno} · {nodo.value}")
+        self.assertEqual(hallazgos, [])
+
+
 if __name__ == "__main__":
     unittest.main()

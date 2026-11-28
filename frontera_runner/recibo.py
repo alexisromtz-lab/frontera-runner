@@ -29,8 +29,10 @@ NOMBRE = "frontera-runner"
 #: of them is not attributable to the pull request, and the comparison says so instead of guessing.
 IDENTIDAD_DE_EJECUTOR = ("version", "huella", "procedencia")
 
-#: Every note a delta row can carry, and the two things a note is worth: which counter in the
-#: summary it raises, and which exit code it earns. This table is the only place that pair lives.
+#: Every note a delta row can carry, and the four things a note is worth: which counter in the
+#: summary it raises, which exit code it earns, where it sits in the published precedence, and
+#: the paragraph a human reads in the pull-request comment. This table is the only place those
+#: live; nothing downstream may restate any of them.
 #:
 #: It exists because the pair used to live in three -- the branch that wrote the note, the loop
 #: that counted it, and the function that turned the count into an exit code -- and one note was
@@ -40,36 +42,88 @@ IDENTIDAD_DE_EJECUTOR = ("version", "huella", "procedencia")
 #: A note is a promise that something reads it; `_nota` is where the promise is kept, and `orden`
 #: is the published precedence among the codes that tie.
 #:
+#: `detalle` is the same promise kept for the reader who only sees the comment: it used to be an
+#: `if fila["nota"] == ...` in `render.markdown_diff`, so a note added here was counted and gated
+#: and still arrived as a bare row with no explanation. `None` means the note needs no paragraph;
+#: a row that omits the key has not said which, and `validar_notas` refuses it at import.
+#:
 #: `rc_estricto` is the same note read by a frozen path: a base that never answered is not a
 #: statement about the pull request, and a gate on a frozen route would rather stop than guess.
 NOTAS = {
-    "PERDIDA_DE_MEDICION": {"contador": "perdidas_de_medicion", "veredicto": "PERDIDA_DE_MEDICION",
-                            "rc": 2, "orden": 0},
+    "PERDIDA_DE_MEDICION": {"contador": "perdidas_de_medicion",
+                            "veredicto": "PERDIDA_DE_MEDICION", "rc": 2, "orden": 0,
+                            "detalle": None},
     "MEDICION_NO_HECHA": {"contador": "mediciones_no_hechas", "veredicto": "MEDICION_NO_HECHA",
-                          "rc": 2, "orden": 1},
+                          "rc": 2, "orden": 1,
+                          "detalle": "- uno de los dos lados no respondió -- agotamiento, caída "
+                                     "o salida ilegible: un hueco no es una ausencia, y no es "
+                                     "verde"},
     "IDENTIDAD_DEL_EJECUTOR_DISTINTA": {"contador": "no_atribuibles",
-                                        "veredicto": "DELTA_NO_ATRIBUIBLE", "rc": 2, "orden": 2},
+                                        "veredicto": "DELTA_NO_ATRIBUIBLE", "rc": 2, "orden": 2,
+                                        "detalle": None},
     "INSTRUMENTO_SOLO_EN_UNA_DE_LAS_DOS": {"contador": "no_atribuibles",
-                                           "veredicto": "DELTA_NO_ATRIBUIBLE", "rc": 2, "orden": 2},
-    "SUPERFICIE_NUEVA": {"contador": "superficies_nuevas", "veredicto": None, "rc": 0, "orden": 3},
+                                           "veredicto": "DELTA_NO_ATRIBUIBLE", "rc": 2, "orden": 2,
+                                           "detalle": None},
+    "SUPERFICIE_NUEVA": {"contador": "superficies_nuevas", "veredicto": None, "rc": 0, "orden": 3,
+                         "detalle": "- base no tenía superficie que medir y head la trae: "
+                                    "`{nuevos}` hallazgo(s) sobre superficie que este cambio "
+                                    "crea, contados como regresión"},
     "SIN_BASE_MEDIDA": {"contador": "ganancias_de_medicion", "veredicto": None, "rc": 0,
-                        "orden": 4, "rc_estricto": 2, "veredicto_estricto": "SIN_BASE_MEDIDA"},
+                        "orden": 4, "rc_estricto": 2, "veredicto_estricto": "SIN_BASE_MEDIDA",
+                        "detalle": None},
     "SIN_MEDICION_EN_NINGUNA_DE_LAS_DOS": {"contador": None, "veredicto": None, "rc": 0,
-                                           "orden": 5},
+                                           "orden": 5, "detalle": None},
 }
+
+#: What every row of `NOTAS` must say, and what it may say additionally. A row missing one of the
+#: first is a promise nobody finished making; a row carrying anything else is a field no reader
+#: will ever look at, which is the same defect seen from the other side.
+COLUMNAS_DE_NOTA = ("contador", "veredicto", "rc", "orden", "detalle")
+COLUMNAS_OPCIONALES = ("rc_estricto", "veredicto_estricto")
+
+
+def validar_notas(tabla: dict | None = None) -> dict:
+    """Refuse a catalogue row that is not a complete descriptor, at import and not at read time.
+
+    A note is worth exactly four things and it is only a note if all four are declared. The cost of
+    checking is one pass over seven rows at import; the cost of not checking is a note that is
+    counted and gated but arrives to the reader unexplained -- which is how the previous version of
+    this file lost the paragraph for every note whose prose lived in `render`.
+    """
+    tabla = NOTAS if tabla is None else tabla
+    for nota, lectura_de_la_nota in tabla.items():
+        faltan = [columna for columna in COLUMNAS_DE_NOTA if columna not in lectura_de_la_nota]
+        sobran = [columna for columna in lectura_de_la_nota
+                  if columna not in COLUMNAS_DE_NOTA + COLUMNAS_OPCIONALES]
+        sueltas = (("rc_estricto" in lectura_de_la_nota)
+                   != ("veredicto_estricto" in lectura_de_la_nota))
+        if faltan or sobran or sueltas:
+            raise KeyError(f"nota incompleta en NOTAS: {nota!r} "
+                           f"(faltan={faltan}, sobran={sobran}, estricto_medio={sueltas})")
+    return tabla
+
+
+def lectura(nota: str) -> dict:
+    """The descriptor of one note. The single reader every consumer goes through."""
+    try:
+        return NOTAS[nota]
+    except KeyError:
+        raise KeyError(f"nota sin lector en NOTAS: {nota!r}") from None
 
 
 def _nota(fila: dict, nota: str) -> dict:
-    """Write a note onto a row, refusing any note that has no counter and no exit code.
+    """Write a note onto a row, refusing any note that has no descriptor in the table.
 
     A note invented without a row in `NOTAS` fails here, in the branch that invented it, instead of
     travelling as a string nobody counts. This is the mechanism; the test that walks the whole
     catalogue is only its witness.
     """
-    if nota not in NOTAS:
-        raise KeyError(f"nota sin lector en NOTAS: {nota!r}")
+    lectura(nota)
     fila["nota"] = nota
     return fila
+
+
+validar_notas()
 
 
 def _resumen_vacio() -> dict:
@@ -390,7 +444,8 @@ def salida_de_comparacion(delta: dict, estricto: bool = False) -> tuple[int, str
 
 
 __all__ = ["construir", "verificar", "salida_global", "canonico", "escribir", "leyes",
-           "comparar", "salida_de_comparacion", "ESQUEMA", "NOTAS"]
+           "comparar", "salida_de_comparacion", "ESQUEMA", "NOTAS", "COLUMNAS_DE_NOTA",
+           "lectura", "validar_notas"]
 
 
 def _self_check() -> int:  # pragma: no cover - exercised by the CLI flag, asserted by tests
