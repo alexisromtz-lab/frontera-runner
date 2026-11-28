@@ -35,6 +35,24 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
+  pruebas:
+    # La suite corria solo en la maquina de quien la escribia, y una compuerta con lector en un
+    # solo sitio no es compuerta. `fetch-depth: 0` no es comodidad: el lector del README resuelve
+    # `refs/tags/vX.Y.Z`, y un clon sin etiquetas deja ese caso en NO_MEDIDO.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the runner under test
+        run: python -m pip install --disable-pip-version-check --quiet .
+      - name: The suite, standard library only
+        run: python -m unittest discover -s tests
+
   frontera:
     runs-on: ubuntu-latest
     timeout-minutes: 30
