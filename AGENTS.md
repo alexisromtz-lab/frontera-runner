@@ -88,15 +88,20 @@ This repo knows them only by their command line and their JSON.
     Never quote a measurement taken from a private repository.
 15. **Zero is a reading, never a default.** A missing field is `None` and travels as
     `NO_MEDIDO`; `.get(k, 0)` and `k or 0` invent the reading and every consumer downstream
-    reads the invented zero as a clean ledger. `CensoDeCerosImplicitos` walks the package AST
-    and refuses both shapes; a field that is legitimately optional is named in the call to
-    `ceros_implicitos(..., permitidos={...})`, where the diff can see it.
+    reads the invented zero as a clean ledger. `frontera_runner.ceros` walks any tree's AST and
+    refuses both shapes, and publishes the surface it walked —`archivos`, `podados`,
+    `ilegibles`— in the same object as its findings: a zero without a denominator says *not
+    looked*, not *none*. A zero that is legitimate is named in the call,
+    `permitidos={...}`, by `get` key or by the exact expression, where the diff can see it. An
+    unreadable file is `HUECO_DE_MEDICION` and a tree with no Python is `SIN_SUPERFICIE`, both
+    `2`, never `0`.
 
 ## Verification, before any commit
 
 ```bash
 python -m frontera_runner.cli --self-test              # 3 properties, RC 0
-python -m unittest discover -s tests                   # 68 tests, RC 0
+python -m unittest discover -s tests                   # 77 tests, RC 0
+python -m frontera_runner.ceros frontera_runner        # 0 findings, RC 0
 ```
 
 Both must pass. A change that does not move any test is suspect: state why in the commit

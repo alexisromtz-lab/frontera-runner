@@ -17,6 +17,7 @@ import apoyo  # noqa: E402
 
 from frontera_runner import instrumentos as inst  # noqa: E402
 from frontera_runner import cli, recibo, render, runner  # noqa: E402
+from frontera_runner import ceros  # noqa: E402
 
 
 class Base(unittest.TestCase):
@@ -1111,50 +1112,27 @@ class CatalogoDeNotas(unittest.TestCase):
 PAQUETE = os.path.dirname(os.path.abspath(recibo.__file__))
 
 
-def _es_cero(valor):
-    return type(valor) in (int, float) and valor == 0
-
-
-def ceros_implicitos(raiz, permitidos=frozenset()):
-    """Where the package writes a zero nobody measured, as `(archivo, línea, expresión)`.
-
-    A missing reading is `None` and travels as `NO_MEDIDO`. A hand-written default — `.get(k, 0)`
-    or a bare `k or 0` — invents the reading instead: the field exists, it counts zero, and every
-    consumer downstream reads that as a clean ledger. `permitidos` is the only way to keep one,
-    and it is declared where the diff can see it.
-    """
-    hallados = []
-    for entrada in sorted(os.listdir(raiz)):
-        if not entrada.endswith(".py"):
-            continue
-        ruta = os.path.join(raiz, entrada)
-        with open(ruta, encoding="utf-8") as f:
-            arbol = ast.parse(f.read(), filename=ruta)
-        for nodo in ast.walk(arbol):
-            if (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
-                    and nodo.func.attr == "get" and len(nodo.args) >= 2
-                    and isinstance(nodo.args[1], ast.Constant)
-                    and _es_cero(nodo.args[1].value)):
-                clave = nodo.args[0]
-                clave = clave.value if isinstance(clave, ast.Constant) else "<expresión>"
-                if clave not in permitidos:
-                    hallados.append((entrada, nodo.lineno, f"get({clave!r}, 0)"))
-            elif isinstance(nodo, ast.BoolOp) and isinstance(nodo.op, ast.Or):
-                if any(isinstance(v, ast.Constant) and _es_cero(v.value) for v in nodo.values):
-                    hallados.append((entrada, nodo.lineno, "… or 0"))
-    return hallados
-
-
 class CensoDeCerosImplicitos(unittest.TestCase):
-    """The package may publish an absence, never invent a zero to fill it."""
+    """The package may publish an absence, never invent a zero to fill it.
+
+    The census is a tool of the package, not a helper of this file: a law only its own author can
+    run is a law nobody else can falsify. What these tests pin is the pair --the finding and the
+    domain it is a finding over-- because a zero without a denominator does not say `none`, it
+    says `not looked`.
+    """
 
     def test_el_paquete_no_fabrica_ceros_implicitos(self):
         """Zero is a reading. Where there is no reading, the field says `NO_MEDIDO`."""
-        hallados = ceros_implicitos(PAQUETE)
+        censo = ceros.censar(PAQUETE)
         self.assertEqual(
-            hallados, [],
+            censo["hallazgos"], [],
             "el paquete escribe ceros que nadie midió: "
-            + "; ".join(f"{a}:{b} {c}" for a, b, c in hallados))
+            + "; ".join("%s:%d %s" % (h["archivo"], h["linea"], h["expresion"])
+                        for h in censo["hallazgos"]))
+        # The empty census above only means `none` if the walk had somewhere to look: without
+        # this line an `EXCLUIDOS` pattern that swallowed the package would publish a clean zero.
+        self.assertGreaterEqual(censo["archivos"], 5)
+        self.assertEqual(censo["ilegibles"], [])
 
     def test_el_censo_ve_un_cero_escrito_delante_de_sus_ojos(self):
         """The falsifier of its own silence: an empty census must mean `none`, not `not looked`."""
@@ -1165,17 +1143,83 @@ class CensoDeCerosImplicitos(unittest.TestCase):
                         "b = r.get('resueltos', 0.0)\n"
                         "c = r.get('medidos') or 0\n"
                         "d = r.get('notas')\n")
-            self.assertEqual(
-                [(a, b) for a, b, _ in ceros_implicitos(caja)],
-                [("lector.py", 2), ("lector.py", 3), ("lector.py", 4)])
+            censo = ceros.censar(caja)
+            self.assertEqual([(h["archivo"], h["linea"]) for h in censo["hallazgos"]],
+                             [("lector.py", 2), ("lector.py", 3), ("lector.py", 4)])
+            self.assertEqual(ceros.salida(censo), (ceros.RC_HALLAZGOS, "CON_HALLAZGOS"))
 
     def test_un_cero_declarado_deja_de_ser_implicito(self):
         """The escape hatch exists, and it costs a name in the call: `permitidos`."""
         with tempfile.TemporaryDirectory() as caja:
             with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
                 f.write("a = r.get('nuevos', 0)\n")
-            self.assertEqual(len(ceros_implicitos(caja)), 1)
-            self.assertEqual(ceros_implicitos(caja, permitidos={"nuevos"}), [])
+            self.assertEqual(len(ceros.censar(caja)["hallazgos"]), 1)
+            self.assertEqual(ceros.censar(caja, permitidos={"nuevos"})["hallazgos"], [])
+
+    def test_un_cero_de_clave_variable_no_tiene_nombre_que_excusar(self):
+        """A `get` whose key is not a literal publishes `clave: null`, and no name disarms it."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.get(clave, 0)\n")
+            hallazgos = ceros.censar(caja, permitidos={"clave"})["hallazgos"]
+            self.assertEqual(len(hallazgos), 1)
+            self.assertIsNone(hallazgos[0]["clave"])
+
+    def test_una_expresion_declarada_excusa_el_cero_que_no_tiene_clave(self):
+        """`... or 0` has no key to name. The narrowest declaration left is the line itself."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("total = suma or 0\n")
+            censo = ceros.censar(caja)
+            self.assertEqual(len(censo["hallazgos"]), 1)
+            self.assertIsNone(censo["hallazgos"][0]["clave"])
+            self.assertEqual(ceros.censar(caja, permitidos={"suma or 0"})["hallazgos"], [])
+            # Renaming the summand re-denounces the line: the permit is the expression, not a class.
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("total = resta or 0\n")
+            self.assertEqual(len(ceros.censar(caja, permitidos={"suma or 0"})["hallazgos"]), 1)
+
+    def test_el_censo_baja_por_subdirectorios_y_poda_lo_declarado(self):
+        """Depth is part of the domain: a `0` on one directory is not a `0` on the tree."""
+        with tempfile.TemporaryDirectory() as caja:
+            os.makedirs(os.path.join(caja, "paquete", "hondo"))
+            os.makedirs(os.path.join(caja, ".venv", "lib"))
+            for relativo in (os.path.join("paquete", "hondo", "lector.py"),
+                             os.path.join(".venv", "lib", "ajeno.py")):
+                with open(os.path.join(caja, relativo), "w", encoding="utf-8") as f:
+                    f.write("a = r.get('nuevos', 0)\n")
+            censo = ceros.censar(caja)
+            self.assertEqual([h["archivo"] for h in censo["hallazgos"]],
+                             [os.path.join("paquete", "hondo", "lector.py")])
+            self.assertEqual(censo["archivos"], 1)
+            self.assertEqual(censo["podados"], [".venv"])
+
+    def test_un_archivo_que_no_parsea_es_un_hueco_y_no_un_cero(self):
+        """An instrument that cannot read a file has not measured it clean -- it has not measured."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "viejo.py"), "w", encoding="utf-8") as f:
+                f.write("print 'hola'\n")
+            censo = ceros.censar(caja)
+            self.assertEqual(censo["archivos"], 0)
+            self.assertEqual(censo["ilegibles"], [{"archivo": "viejo.py", "error": "SINTAXIS"}])
+            self.assertEqual(ceros.salida(censo), (ceros.RC_HUECO, "HUECO_DE_MEDICION"))
+
+    def test_un_arbol_sin_python_no_censa_cero(self):
+        """`SIN_SUPERFICIE` is a hole, not a clean sheet: nothing measured is never `0`."""
+        with tempfile.TemporaryDirectory() as caja:
+            self.assertEqual(ceros.salida(ceros.censar(caja)), (ceros.RC_HUECO, "SIN_SUPERFICIE"))
+
+    def test_el_censo_no_depende_de_donde_viva_el_arbol(self):
+        """Two copies at different depths, one census: where a tree lives is the observer's."""
+        with tempfile.TemporaryDirectory() as caja:
+            hondo = os.path.join(caja, "a", "bbb", "c", "arbol")
+            plano = os.path.join(caja, "arbol")
+            for raiz in (hondo, plano):
+                os.makedirs(os.path.join(raiz, "sub"))
+                with open(os.path.join(raiz, "sub", "lector.py"), "w", encoding="utf-8") as f:
+                    f.write("a = r.get('nuevos', 0)\nb = r.get('x') or 0\n")
+            self.assertEqual(recibo.canonico(ceros.censar(hondo)),
+                             recibo.canonico(ceros.censar(plano)))
 
 
 if __name__ == "__main__":
