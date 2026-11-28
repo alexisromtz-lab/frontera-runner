@@ -86,12 +86,17 @@ This repo knows them only by their command line and their JSON.
     invocation. The four smoke subjects were hand-built in `/tmp` and are described well enough
     to rebuild them; the tests use fakes and their numbers are properties, not measurements.
     Never quote a measurement taken from a private repository.
+15. **Zero is a reading, never a default.** A missing field is `None` and travels as
+    `NO_MEDIDO`; `.get(k, 0)` and `k or 0` invent the reading and every consumer downstream
+    reads the invented zero as a clean ledger. `CensoDeCerosImplicitos` walks the package AST
+    and refuses both shapes; a field that is legitimately optional is named in the call to
+    `ceros_implicitos(..., permitidos={...})`, where the diff can see it.
 
 ## Verification, before any commit
 
 ```bash
 python -m frontera_runner.cli --self-test              # 3 properties, RC 0
-python -m unittest discover -s tests                   # 52 tests, RC 0
+python -m unittest discover -s tests                   # 68 tests, RC 0
 ```
 
 Both must pass. A change that does not move any test is suspect: state why in the commit
