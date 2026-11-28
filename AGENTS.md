@@ -99,13 +99,15 @@ This repo knows them only by their command line and their JSON.
     looked*, not *none*. A zero that is legitimate is named in the call,
     `permitidos={...}`, by `get` key or by the exact expression, where the diff can see it. An
     unreadable file is `HUECO_DE_MEDICION` and a tree with no Python is `SIN_SUPERFICIE`, both
-    `2`, never `0`.
+    `2`, never `0`. The gate over that census is `delta`, and it subtracts by class —file, key,
+    shape— and never by line: a refactor that moves a line is not a new zero. Its hole outranks
+    its finding, because without a minuend the difference is unknown, and an unknown is `2`.
 
 ## Verification, before any commit
 
 ```bash
 python -m frontera_runner.cli --self-test              # 3 properties, RC 0
-python -m unittest discover -s tests                   # 79 tests, RC 0
+python -m unittest discover -s tests                   # 82 tests, RC 0
 python -m frontera_runner.ceros frontera_runner        # 0 findings, RC 0
 ```
 

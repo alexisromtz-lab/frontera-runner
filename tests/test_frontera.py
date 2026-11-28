@@ -1267,6 +1267,57 @@ class CensoDeCerosImplicitos(unittest.TestCase):
             self.assertEqual(recibo.canonico(ceros.censar(hondo)),
                              recibo.canonico(ceros.censar(plano)))
 
+    def test_el_delta_cuenta_el_cero_que_el_cambio_anadio(self):
+        """A census is a diagnosis; the delta is the gate. One zero more is one zero new."""
+        with tempfile.TemporaryDirectory() as caja:
+            base = os.path.join(caja, "base")
+            head = os.path.join(caja, "head")
+            os.makedirs(base)
+            os.makedirs(head)
+            with open(os.path.join(base, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.get('nuevos', 0)\n")
+            with open(os.path.join(head, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.get('nuevos', 0)\nb = r.get('resueltos', 0)\n")
+            diferencia = ceros.delta(ceros.censar(base), ceros.censar(head))
+            self.assertEqual([(h["archivo"], h["clave"], h["forma"], h["veces"])
+                              for h in diferencia["nuevos"]],
+                             [("lector.py", "resueltos", "GET", 1)])
+            self.assertEqual(diferencia["cerrados"], [])
+            self.assertEqual(diferencia["permanecen"], 1)
+            self.assertEqual(ceros.salida_delta(diferencia),
+                             (ceros.RC_HALLAZGOS, "CON_CEROS_NUEVOS"))
+
+    def test_mover_una_linea_no_es_un_cero_nuevo(self):
+        """The identity is the class --file, key, shape--, not the line: a refactor is not a defect."""
+        with tempfile.TemporaryDirectory() as caja:
+            base = os.path.join(caja, "base")
+            head = os.path.join(caja, "head")
+            os.makedirs(base)
+            os.makedirs(head)
+            with open(os.path.join(base, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.get('nuevos', 0)\nb = total or 0\n")
+            with open(os.path.join(head, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("import os\n\n# una linea mas arriba\nb = total or 0\na = r.get('nuevos', 0)\n")
+            diferencia = ceros.delta(ceros.censar(base), ceros.censar(head))
+            self.assertEqual((diferencia["nuevos"], diferencia["cerrados"]), ([], []))
+            self.assertEqual(ceros.salida_delta(diferencia), (ceros.RC_OK, "SIN_CEROS_NUEVOS"))
+
+    def test_una_base_sin_superficie_no_es_un_delta_verde(self):
+        """Without a minuend the difference is unknown, and unknown is never `0`: it is the hole."""
+        with tempfile.TemporaryDirectory() as caja:
+            base = os.path.join(caja, "base")
+            head = os.path.join(caja, "head")
+            os.makedirs(base)
+            os.makedirs(head)
+            with open(os.path.join(head, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.get('nuevos', 0)\n")
+            self.assertEqual(ceros.salida_delta(ceros.delta(ceros.censar(base), ceros.censar(head))),
+                             (ceros.RC_HUECO, "SIN_SUPERFICIE_EN_LA_BASE"))
+            with open(os.path.join(base, "roto.py"), "w", encoding="utf-8") as f:
+                f.write("print 'hola'\n")
+            self.assertEqual(ceros.salida_delta(ceros.delta(ceros.censar(base), ceros.censar(head))),
+                             (ceros.RC_HUECO, "HUECO_DE_MEDICION_EN_LA_BASE"))
+
 
 if __name__ == "__main__":
     unittest.main()
