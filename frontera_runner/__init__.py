@@ -5,5 +5,5 @@ in its own repository, and identified in the receipt by version, commit and a di
 code that actually ran.
 """
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 __all__ = ["__version__"]

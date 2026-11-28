@@ -3,7 +3,7 @@
 #
 #   jobs:
 #     ceros:
-#       uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.1
+#       uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.2
 #       with:
 #         excluir: "bench,tests"          # opcional: scope declarado
 #         permitir: |                     # opcional: una expresión exacta por línea
@@ -35,7 +35,7 @@ on:
         description: "ref de frontera-runner a instalar; un pin, no una rama"
         type: string
         required: false
-        default: "v0.2.1"
+        default: "v0.2.2"
       python:
         description: "version de python para el runner"
         type: string
