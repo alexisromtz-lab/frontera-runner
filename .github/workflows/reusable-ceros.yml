@@ -1,0 +1,57 @@
+# HUELLA-WORKFLOW-REUTILIZABLE-20261127
+# La compuerta de ceros implicitos, para que un repositorio ajeno la adopte con una linea:
+#
+#   jobs:
+#     ceros:
+#       uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.0
+#       with: { excluir: "bench,tests" }   # opcional
+#
+# Resta contra el arbol de la base del PR, así que los ceros que ya existian no se declaran: se
+# restan solos. RC 1 si el cambio anade uno, RC 0 si no, RC 2 si algun lado no se pudo leer.
+name: ceros reutilizable
+
+on:
+  workflow_call:
+    inputs:
+      excluir:
+        description: "directorios a podar, separados por comas (vacio = solo los de fabrica)"
+        type: string
+        required: false
+        default: ""
+      permitidos:
+        description: "claves cuyo cero esta declarado, separadas por comas"
+        type: string
+        required: false
+        default: ""
+      version:
+        description: "ref de frontera-runner a instalar; un pin, no una rama"
+        type: string
+        required: false
+        default: "v0.2.0"
+      python:
+        description: "version de python para el runner"
+        type: string
+        required: false
+        default: "3.12"
+
+jobs:
+  ceros:
+    runs-on: ubuntu-latest
+    steps:
+      # Historial completo: la base del PR se materializa como worktree por su sha.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python }}
+      - name: install the gate
+        run: pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@${{ inputs.version }}"
+      - name: the base tree, as its own witness
+        run: git worktree add --detach /tmp/base "${{ github.event.pull_request.base.sha }}"
+      # `--excluir ""` y `--permitidos ""` son el default del programa: vacio no acota nada.
+      - name: no new implicit zero
+        run: ceros-implicitos --excluir "$EXCLUIR" --permitidos "$PERMITIDOS" --base /tmp/base .
+        env:
+          EXCLUIR: ${{ inputs.excluir }}
+          PERMITIDOS: ${{ inputs.permitidos }}
