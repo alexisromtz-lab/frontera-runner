@@ -314,7 +314,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, seventy-seven tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, seventy-eight tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
