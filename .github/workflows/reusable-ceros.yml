@@ -3,8 +3,11 @@
 #
 #   jobs:
 #     ceros:
-#       uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.0
-#       with: { excluir: "bench,tests" }   # opcional
+#       uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.1
+#       with:
+#         excluir: "bench,tests"          # opcional: scope declarado
+#         permitir: |                     # opcional: una expresión exacta por línea
+#           a.llamadas.get(k, 0)
 #
 # Resta contra el arbol de la base del PR, así que los ceros que ya existian no se declaran: se
 # restan solos. RC 1 si el cambio anade uno, RC 0 si no, RC 2 si algun lado no se pudo leer.
@@ -23,11 +26,16 @@ on:
         type: string
         required: false
         default: ""
+      permitir:
+        description: "expresiones exactas declaradas, una por linea; admite comas dentro de la linea"
+        type: string
+        required: false
+        default: ""
       version:
         description: "ref de frontera-runner a instalar; un pin, no una rama"
         type: string
         required: false
-        default: "v0.2.0"
+        default: "v0.2.1"
       python:
         description: "version de python para el runner"
         type: string
@@ -50,8 +58,18 @@ jobs:
       - name: the base tree, as its own witness
         run: git worktree add --detach /tmp/base "${{ github.event.pull_request.base.sha }}"
       # `--excluir ""` y `--permitidos ""` son el default del programa: vacio no acota nada.
+      # `permitir` viaja una bandera por linea y no una lista por comas: una expresion como
+      # `a.llamadas.get(k, 0)` lleva coma, y partirla la deja sin casar con nada.
       - name: no new implicit zero
-        run: ceros-implicitos --excluir "$EXCLUIR" --permitidos "$PERMITIDOS" --base /tmp/base .
+        run: |
+          declaradas=()
+          while IFS= read -r linea; do
+            linea="${linea%$'\r'}"
+            if [ -n "$linea" ]; then declaradas+=(--permitir "$linea"); fi
+          done <<< "$PERMITIR"
+          ceros-implicitos --excluir "$EXCLUIR" --permitidos "$PERMITIDOS" \
+            ${declaradas[@]+"${declaradas[@]}"} --base /tmp/base .
         env:
           EXCLUIR: ${{ inputs.excluir }}
           PERMITIDOS: ${{ inputs.permitidos }}
+          PERMITIR: ${{ inputs.permitir }}

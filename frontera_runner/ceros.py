@@ -18,6 +18,11 @@ Un censo es un diagnóstico; un delta es una puerta. `delta(base, head)` resta d
 diccionario del que se lee, no añade un cero y no puede hacer fallar una compuerta. La clase es la
 misma granularidad con la que `--permitidos` excusa: lo que se puede declarar por nombre se cuenta
 por nombre.
+
+`--permitidos` transporta nombres separados por comas. Una declaración que lleva una coma dentro
+—`a.llamadas.get(k, 0)`— no cabe ahí: partirla la convierte en fragmentos que no casan con nada y
+el censo publica un número de permitidos que se lee como declaración ejercida. Esa forma viaja por
+`--permitir`, una por bandera, sin separador que la parta.
 """
 
 from __future__ import annotations
@@ -259,7 +264,11 @@ def main(argv=None) -> int:
     parser.add_argument("--base", default=None,
                         help="árbol de la base; con --base, RAIZ es el head y se publica el delta")
     parser.add_argument("--permitidos", default="",
-                        help="claves de get cuyo cero está declarado, separadas por comas")
+                        help="claves de get cuyo cero está declarado, separadas por comas; una "
+                             "expresión que lleva coma no cabe aquí y va por --permitir")
+    parser.add_argument("--permitir", action="append", default=[], metavar="EXPRESION",
+                        help="una declaración literal por bandera, sin separador: es el canal de "
+                             "las expresiones que llevan coma, como a.llamadas.get(k, 0)")
     parser.add_argument("--excluir", default="",
                         help="patrones de directorio adicionales a podar, separados por comas")
     parser.add_argument("--json", action="store_true", help="publicar el censo canónico")
@@ -270,7 +279,10 @@ def main(argv=None) -> int:
             print(f"ceros-implicitos: error: '{ruta}' no es un directorio", file=sys.stderr)
             return RC_ARIDAD
 
-    permitidos = _conjunto(args.permitidos)
+    # Dos canales y no uno: `--permitidos` parte por coma, así que una expresión como
+    # `a.m.get(k, 0)` llegaría rota. `--permitir` no parte nada.
+    permitidos = _conjunto(args.permitidos) | frozenset(p.strip() for p in args.permitir
+                                                         if p.strip())
     excluidos = EXCLUIDOS + tuple(_conjunto(args.excluir))
     if args.base is None:
         censo = censar(args.raiz, permitidos=permitidos, excluidos=excluidos)

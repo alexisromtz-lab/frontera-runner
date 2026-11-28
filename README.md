@@ -303,7 +303,10 @@ The hole outranks the finding here, unlike the single-tree census: if a side cou
 difference is unknown, and an unknown published as `0` is the false green the census exists to
 refuse. A zero that moves from one file to another is a closure *and* an opening, because the file
 is part of what the zero asserts. `--permitidos` accepts the classes someone has declared — a key,
-or a whole expression for the `or 0` form that has no key to name — and applies to both sides.
+or a whole expression for the `or 0` form that has no key to name — and applies to both sides. A
+declaration that carries a comma inside, like a tally dictionary's `a.llamadas.get(k, 0)`, travels
+through `--permitir` instead: one literal per flag, because a comma-separated list would split the
+declaration into fragments that match nothing and publish a count that reads like a declaration.
 
 ### Use it in your repository
 
@@ -314,12 +317,15 @@ for byte the digest produced from inside this repository.
 It is on the index, so the shortest path needs no clone:
 
 ```bash
-uvx --from frontera-runner==0.2.0 ceros-implicitos .    # RC 1 · 10 zeros on fiber-ast-lint@ecde184
+uvx --from frontera-runner==0.2.1 ceros-implicitos .    # RC 1 · 10 zeros on fiber-ast-lint@ecde184
 ```
 
 The pin is a version for the same reason the workflow pins a tag: a census is evidence about the
-tree that was measured, and nothing else. `0.2.0` is what the index serves, and it is the tree that
-the tag `v0.2.0` and the workflow default below also name.
+tree that was measured, and nothing else. A tag publishes itself to the index on push
+([`publicar.yml`](.github/workflows/publicar.yml), OIDC, no stored token) and refuses to publish
+when the tag and the manifest disagree, so the number in this line is the number `pip` resolves — or
+the run is red and says why. In this file `0.2.1` is the tree that the tag `v0.2.1` and the
+workflow default below also name.
 
 The whole act — checkout with full history, the interpreter, the install, the base tree as a
 worktree, the invocation — is published as a reusable workflow. Adoption is one reference:
@@ -329,7 +335,7 @@ worktree, the invocation — is published as a reusable workflow. Adoption is on
 on: [pull_request]
 jobs:
   ceros:
-    uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.0
+    uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.1
     with:
       excluir: "bench,tests"      # optional: declared scope, not a waiver
 ```
@@ -345,7 +351,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@v0.2.0"
+      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@v0.2.1"
       - run: git worktree add --detach /tmp/base "${{ github.event.pull_request.base.sha }}"
       - run: ceros-implicitos --base /tmp/base .
 ```
@@ -354,7 +360,9 @@ The zeros that predate the pull request are not a problem and not a waiver: the 
 minuend, so they subtract themselves and the gate measures only what the pull request adds. Nothing
 has to be declared on day one. What a tree sometimes does need is a declared *scope* — if it keeps
 tally dictionaries over a benchmark population, `--excluir bench` measures the product surface and
-says so out loud, which is not the same as excusing by name.
+says so out loud, which is not the same as excusing by name. The other form is a declared *class*: a
+tally dictionary that legitimately starts at zero inside product code is excused by name —
+`permitidos:` for a key, `permitir:` for a whole expression, one per line.
 
 ### Measured on somebody else's repository
 

@@ -1240,6 +1240,32 @@ class CensoDeCerosImplicitos(unittest.TestCase):
                 f.write("total = resta or 0\n")
             self.assertEqual(len(ceros.censar(caja, permitidos={"suma or 0"})["hallazgos"]), 1)
 
+    def test_una_expresion_con_coma_solo_llega_entera_por_bandera(self):
+        """The declaration that carries a comma has one channel, and the list is not it.
+
+        Measured 28-Nov-2026 over a foreign tree: `--permitidos "a.m.get(k, 0)"` published
+        `permitidos 1` holding `a.m.get(k` and excused nothing. A count of fragments reads exactly
+        like a count of declarations, so the defect was invisible in the report that published it.
+        The expression is a literal; `--permitir` is the flag that keeps it one.
+        """
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.llamadas.get(n.func.id, 0)\n")
+            expresion = "r.llamadas.get(n.func.id, 0)"
+            self.assertEqual(ceros.main(["--permitidos", expresion, caja]), ceros.RC_HALLAZGOS)
+            self.assertEqual(ceros.main(["--permitir", expresion, caja]), ceros.RC_OK)
+
+    def test_dos_expresiones_son_dos_banderas_y_no_un_separador(self):
+        """One flag per declaration: the second one does not ride along inside the first."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.llamadas.get(n.func.id, 0)\nb = r.llamadas.get(loc.fn, 0)\n")
+            self.assertEqual(ceros.main(["--permitir", "r.llamadas.get(n.func.id, 0)", caja]),
+                             ceros.RC_HALLAZGOS)
+            self.assertEqual(ceros.main(["--permitir", "r.llamadas.get(n.func.id, 0)",
+                                         "--permitir", "r.llamadas.get(loc.fn, 0)", caja]),
+                             ceros.RC_OK)
+
     def test_el_censo_baja_por_subdirectorios_y_poda_lo_declarado(self):
         """Depth is part of the domain: a `0` on one directory is not a `0` on the tree."""
         with tempfile.TemporaryDirectory() as caja:
