@@ -1,0 +1,42 @@
+# HUELLA-PUBLICAR-EN-PYPI-20261128
+# El tag es la declaracion; publicar es la consecuencia. Si alguien corto un tag y no puede
+# instalarlo con `pip install frontera-runner`, el paquete no existe para quien lo busca.
+#
+# Sin secreto: OIDC (Trusted Publishing). La credencial no vive en este repositorio, vive en
+# la relacion entre PyPI y esta ruta, y por eso no hay nada que rotar. Requiere, del lado de
+# PyPI, un *pending publisher* para alexisromtz-lab/frontera-runner con entorno `pypi`.
+name: publicar
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # El manifiesto tiene que decir la version que el tag nombra. Es la misma comprobacion
+      # que ya corre en la suite: aqui se ejecuta antes de publicar, no despues.
+      - name: el tag y el manifiesto dicen lo mismo
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pyproject=$(python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          init=$(python -c "import pathlib,re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"',pathlib.Path('frontera_runner/__init__.py').read_text()).group(1))")
+          test "$tag" = "$pyproject" && test "$tag" = "$init" || {
+            echo "tag=$tag pyproject=$pyproject init=$init"; exit 1; }
+      - name: build
+        run: |
+          python -m pip install --quiet build
+          python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -311,6 +311,16 @@ It has no dependencies and no assumption about where it is imported from: instal
 3.11 environment it runs from `/` under `env -i`, and the census of a foreign tree reproduces byte
 for byte the digest produced from inside this repository.
 
+It is on the index, so the shortest path needs no clone:
+
+```bash
+uvx --from frontera-runner==0.2.0 ceros-implicitos .    # RC 1 · 10 zeros on fiber-ast-lint@ecde184
+```
+
+The pin is a version for the same reason the workflow pins a tag: a census is evidence about the
+tree that was measured, and nothing else. `0.2.0` is what the index serves, and it is the tree that
+the tag `v0.2.0` and the workflow default below also name.
+
 The whole act — checkout with full history, the interpreter, the install, the base tree as a
 worktree, the invocation — is published as a reusable workflow. Adoption is one reference:
 
