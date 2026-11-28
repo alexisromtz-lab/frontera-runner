@@ -267,7 +267,31 @@ class ElReadmeNoPrometeLoQueNoCorre(unittest.TestCase):
         """Un verde que nunca se pone rojo no ha mostrado que mide: cinco mutaciones, cinco rojos."""
         version = self.manifiesto["version"]
         bueno = self.texto
+        # Cada mutacion se construye por insercion o por sustitucion medida, nunca por un literal
+        # del README: si el texto cambia de redaccion, la mutacion sigue aplicandose.
+        desfasada = "0.0.1" if version != "0.0.1" else "0.0.2"
         celda = "\n```bash\nuvx --from frontera-runner==%s ceros-implicitos .\n```\n" % version
+        yaml_desfasado = (
+            "\n```yaml\n"
+            "      uses: alexisromtz-lab/frontera-runner/.github/workflows/"
+            "reusable-ceros.yml@v%s\n"
+            "```\n" % desfasada
+        )
+        wheel_mal_nombrado = (
+            "\n```bash\nuvx --from https://example.invalid/frontera-runner-%s-py3-none-any.whl"
+            " ceros-implicitos .\n```\n" % version
+        )
+        cuerpo_tests = seccion(bueno, "Tests")
+        inflado = bueno.replace(
+            cuerpo_tests,
+            re.sub(
+                r"\b([a-z]+(?:-[a-z]+)?|\d+)\s+tests\b",
+                "%d tests" % (casos_descubiertos() + 1),
+                cuerpo_tests,
+                count=1,
+                flags=re.I,
+            ),
+        )
         mutaciones = [
             (
                 "invocacion por indice sin version",
@@ -281,23 +305,17 @@ class ElReadmeNoPrometeLoQueNoCorre(unittest.TestCase):
             ),
             (
                 "etiqueta desfasada",
-                bueno.replace("reusable-ceros.yml@v%s" % version, "reusable-ceros.yml@v0.2.1"),
+                bueno + yaml_desfasado,
                 lambda t: violaciones_de_version(t, version, self.ejecutables),
             ),
             (
                 "wheel que no es el nombre PEP 427",
-                bueno.replace(
-                    "frontera_runner-%s-py3-none-any.whl" % version,
-                    "frontera-runner-%s-py3-none-any.whl" % version,
-                ),
+                bueno + wheel_mal_nombrado,
                 lambda t: violaciones_de_version(t, version, self.ejecutables),
             ),
             (
                 "conteo de pruebas inflado",
-                bueno.replace(
-                    seccion(bueno, "Tests").split(",")[0],
-                    "Standard library only, %d tests" % (casos_descubiertos() + 1),
-                ),
+                inflado,
                 lambda t: [
                     "conteo"
                 ]
@@ -307,7 +325,8 @@ class ElReadmeNoPrometeLoQueNoCorre(unittest.TestCase):
         ]
         for nombre, mutado, lector in mutaciones:
             with self.subTest(mutacion=nombre):
-                self.assertNotEqual(mutado, bueno, "la mutacion `%s` no cambio nada" % nombre)
+                if mutado == bueno:
+                    self.fail("la mutacion `%s` no cambio nada" % nombre)
                 self.assertNotEqual(lector(mutado), [], "`%s` no puso rojo al lector" % nombre)
 
 
