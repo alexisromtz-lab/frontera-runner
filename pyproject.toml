@@ -21,6 +21,7 @@ dependencies = []
 
 [project.scripts]
 frontera-runner = "frontera_runner.cli:main"
+ceros-implicitos = "frontera_runner.ceros:main"
 
 [tool.setuptools]
 packages = ["frontera_runner"]

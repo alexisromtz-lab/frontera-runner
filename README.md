@@ -11,6 +11,7 @@ green zero.
 frontera-runner <sujeto>                                 # Markdown for a PR check
 frontera-runner <sujeto> --json                          # the canonical receipt
 frontera-runner diff --base b.json --head h.json         # the gate: what the PR changed
+ceros-implicitos <árbol>                                 # where a tree writes a zero it did not measure
 ```
 
 ## Why this exists
@@ -313,7 +314,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, sixty-eight tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, seventy-seven tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
@@ -331,8 +332,14 @@ not a regression, a deleted measurement is `2` and never "resolved", the guard's
 partition), the two resolution routes, and path invariance: two clones of one subject at two depths,
 two different `--raiz`, one seal — with the fixtures' commits pinned to a fixed date, because
 otherwise the digest of a fake repository depends on the second it was created in. The package's
-own AST is read too: no field may be given a hand-written zero default, and the census that says so
-is falsified by a file that writes one, so an empty result means *none*, not *not looked*.
+own AST is read too: no field may be given a hand-written zero default, and the same reader is a
+tool —`python -m frontera_runner.ceros <árbol>`— that any repository can point at its own tree. It
+publishes the surface it walked (`archivos`, `podados`, `ilegibles`) in the same object as its
+findings, because a `0` without a denominator says *not looked*, not *none*; a file that does not
+parse is `HUECO_DE_MEDICION` and a tree with no Python at all is `SIN_SUPERFICIE`, both `2`. The
+census is falsified four ways: by a file that writes a zero in front of it, by a legitimate zero
+named in the call, by a zero one directory down that a top-level walk would miss, and by two
+copies of one tree at two depths having to publish one identical object.
 
 ## Boundaries
 
