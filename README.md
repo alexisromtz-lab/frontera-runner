@@ -318,18 +318,24 @@ It has no dependencies and no assumption about where it is imported from: instal
 3.11 environment it runs from `/` under `env -i`, and the census of a foreign tree reproduces byte
 for byte the digest produced from inside this repository.
 
-It is on the index, so the shortest path needs no clone:
+The index carries `0.2.0`, the version whose upload succeeded. `0.2.2` is not there yet — the
+publisher for this repository is still unregistered — so the shortest paths that work today need
+neither a clone nor the index:
 
 ```bash
-uvx --from frontera-runner==0.2.2 ceros-implicitos .    # RC 1 · 10 zeros on fiber-ast-lint@ecde184
+# the wheel attached to the release, built from a clean export of the tag
+uvx --from https://github.com/alexisromtz-lab/frontera-runner/releases/download/v0.2.2/frontera_runner-0.2.2-py3-none-any.whl \
+    ceros-implicitos .     # RC 1 · 3 zeros on ts-py-anchor-guard@b2897fe, cold, under `env -i`
+# or the tag itself
+uvx --from git+https://github.com/alexisromtz-lab/frontera-runner@v0.2.2 ceros-implicitos .
 ```
 
 The pin is a version for the same reason the workflow pins a tag: a census is evidence about the
 tree that was measured, and nothing else. A tag publishes itself to the index on push
 ([`publicar.yml`](.github/workflows/publicar.yml), OIDC, no stored token) and refuses to publish
-when the tag and the manifest disagree, so the number in this line is the number `pip` resolves — or
-the run is red and says why. In this file `0.2.2` is the tree that the tag `v0.2.2` and the
-workflow default below also name.
+when the tag and the manifest disagree — which is why `0.2.2` is absent from the index rather than
+wrong there: the run is red and says what it is missing. In this file `0.2.2` is the tree that the
+tag `v0.2.2` and the workflow default below also name.
 
 The whole act — checkout with full history, the interpreter, the install, the base tree as a
 worktree, the invocation — is published as a reusable workflow. Adoption is one reference:
@@ -371,15 +377,18 @@ writes it.
 
 ### Measured on somebody else's repository
 
-Three repositories that are not this one run the gate on every pull request, all through the
+Four repositories that are not this one run the gate on every pull request, all through the
 one-line reference and without touching their governed `ci.yml`:
 [fiber-ast-lint](https://github.com/alexisromtz-lab/fiber-ast-lint) (declared scope `bench,tests`),
 [protocol-core](https://github.com/alexisromtz-lab/protocol-core) (no scope at all — its five
-pre-existing zeros subtract themselves) and
+pre-existing zeros subtract themselves),
 [git-complement-audit](https://github.com/alexisromtz-lab/git-complement-audit) (two declared
 tallies, `roots.get(oid, 0)` and `roots.get(peeled, 0)`, where zero is the identity of a `max`; the
 `or 0` that could equally mean *not measured* is deliberately left undeclared and published as
-`permanecen 1`).
+`permanecen 1`) and
+[ts-py-anchor-guard](https://github.com/alexisromtz-lab/ts-py-anchor-guard) (all three zeros named
+one by one — a counter, a remainder inside a test, and a policy default where zero is the strictest
+possible tolerance — so the delta publishes `permanecen 0`).
 
 Green on a clean pull request — `SIN_CEROS_NUEVOS`, RC 0, `nuevos 0`, `permanecen 2` (two call
 tallies that predate the branch and subtract themselves):
@@ -407,6 +416,11 @@ excuse and a declaration that merely looks alike still does not: green through t
 [runs/46161720615](https://github.com/alexisromtz-lab/git-complement-audit/actions/runs/46161720615),
 and the four-cell matrix — undeclared `1`, source spelling `0`, `ast.unparse` spelling `0`,
 look-alike `1` — measured on that tree before the pull request.
+
+Those four cells no longer live only in that log. They are a case in this project's own suite,
+`test_las_cuatro_celdas_de_una_declaracion`, with the falsifier that would catch the regression:
+compare declarations by raw text and the source-spelling cell falls back to red. The contract
+survives a change to `_forma` without needing a fifth repository to re-measure it.
 
 ## The age partition travels with the audit row
 
