@@ -313,7 +313,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, fifty-two tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, sixty-eight tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
@@ -330,7 +330,9 @@ that, the `diff` contract (a receipt tampered with in one byte is `3`, a finding
 not a regression, a deleted measurement is `2` and never "resolved", the guard's per-pair
 partition), the two resolution routes, and path invariance: two clones of one subject at two depths,
 two different `--raiz`, one seal — with the fixtures' commits pinned to a fixed date, because
-otherwise the digest of a fake repository depends on the second it was created in.
+otherwise the digest of a fake repository depends on the second it was created in. The package's
+own AST is read too: no field may be given a hand-written zero default, and the census that says so
+is falsified by a file that writes one, so an empty result means *none*, not *not looked*.
 
 ## Boundaries
 

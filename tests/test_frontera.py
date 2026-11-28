@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -1105,6 +1106,76 @@ class CatalogoDeNotas(unittest.TestCase):
                         and id(nodo) not in docstrings and nodo.value in recibo.NOTAS:
                     hallazgos.append(f"{ruta.name}:{nodo.lineno} · {nodo.value}")
         self.assertEqual(hallazgos, [])
+
+
+PAQUETE = os.path.dirname(os.path.abspath(recibo.__file__))
+
+
+def _es_cero(valor):
+    return type(valor) in (int, float) and valor == 0
+
+
+def ceros_implicitos(raiz, permitidos=frozenset()):
+    """Where the package writes a zero nobody measured, as `(archivo, línea, expresión)`.
+
+    A missing reading is `None` and travels as `NO_MEDIDO`. A hand-written default — `.get(k, 0)`
+    or a bare `k or 0` — invents the reading instead: the field exists, it counts zero, and every
+    consumer downstream reads that as a clean ledger. `permitidos` is the only way to keep one,
+    and it is declared where the diff can see it.
+    """
+    hallados = []
+    for entrada in sorted(os.listdir(raiz)):
+        if not entrada.endswith(".py"):
+            continue
+        ruta = os.path.join(raiz, entrada)
+        with open(ruta, encoding="utf-8") as f:
+            arbol = ast.parse(f.read(), filename=ruta)
+        for nodo in ast.walk(arbol):
+            if (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
+                    and nodo.func.attr == "get" and len(nodo.args) >= 2
+                    and isinstance(nodo.args[1], ast.Constant)
+                    and _es_cero(nodo.args[1].value)):
+                clave = nodo.args[0]
+                clave = clave.value if isinstance(clave, ast.Constant) else "<expresión>"
+                if clave not in permitidos:
+                    hallados.append((entrada, nodo.lineno, f"get({clave!r}, 0)"))
+            elif isinstance(nodo, ast.BoolOp) and isinstance(nodo.op, ast.Or):
+                if any(isinstance(v, ast.Constant) and _es_cero(v.value) for v in nodo.values):
+                    hallados.append((entrada, nodo.lineno, "… or 0"))
+    return hallados
+
+
+class CensoDeCerosImplicitos(unittest.TestCase):
+    """The package may publish an absence, never invent a zero to fill it."""
+
+    def test_el_paquete_no_fabrica_ceros_implicitos(self):
+        """Zero is a reading. Where there is no reading, the field says `NO_MEDIDO`."""
+        hallados = ceros_implicitos(PAQUETE)
+        self.assertEqual(
+            hallados, [],
+            "el paquete escribe ceros que nadie midió: "
+            + "; ".join(f"{a}:{b} {c}" for a, b, c in hallados))
+
+    def test_el_censo_ve_un_cero_escrito_delante_de_sus_ojos(self):
+        """The falsifier of its own silence: an empty census must mean `none`, not `not looked`."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("r = {}\n"
+                        "a = r.get('nuevos', 0)\n"
+                        "b = r.get('resueltos', 0.0)\n"
+                        "c = r.get('medidos') or 0\n"
+                        "d = r.get('notas')\n")
+            self.assertEqual(
+                [(a, b) for a, b, _ in ceros_implicitos(caja)],
+                [("lector.py", 2), ("lector.py", 3), ("lector.py", 4)])
+
+    def test_un_cero_declarado_deja_de_ser_implicito(self):
+        """The escape hatch exists, and it costs a name in the call: `permitidos`."""
+        with tempfile.TemporaryDirectory() as caja:
+            with open(os.path.join(caja, "lector.py"), "w", encoding="utf-8") as f:
+                f.write("a = r.get('nuevos', 0)\n")
+            self.assertEqual(len(ceros_implicitos(caja)), 1)
+            self.assertEqual(ceros_implicitos(caja, permitidos={"nuevos"}), [])
 
 
 if __name__ == "__main__":
