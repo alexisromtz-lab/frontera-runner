@@ -1287,6 +1287,29 @@ class CensoDeCerosImplicitos(unittest.TestCase):
             self.assertEqual(ceros.salida_delta(diferencia),
                              (ceros.RC_HALLAZGOS, "CON_CEROS_NUEVOS"))
 
+    def test_un_archivo_nuevo_lleno_de_ceros_se_atribuye_al_cambio(self):
+        """A file that did not exist has no history to inherit: its zeros are the change's own."""
+        with tempfile.TemporaryDirectory() as caja:
+            base = os.path.join(caja, "base")
+            head = os.path.join(caja, "head")
+            os.makedirs(base)
+            os.makedirs(head)
+            for raiz in (base, head):
+                with open(os.path.join(raiz, "viejo.py"), "w", encoding="utf-8") as f:
+                    f.write("a = 1\n")
+            with open(os.path.join(head, "nuevo.py"), "w", encoding="utf-8") as f:
+                f.write("def saldo(d):\n    return d.get('saldo', 0)\n")
+            diferencia = ceros.delta(ceros.censar(base), ceros.censar(head))
+            self.assertEqual([(h["archivo"], h["clave"], h["forma"], h["veces"])
+                              for h in diferencia["nuevos"]],
+                             [("nuevo.py", "saldo", "GET", 1)])
+            self.assertEqual(diferencia["permanecen"], 0)
+            self.assertEqual(ceros.salida_delta(diferencia),
+                             (ceros.RC_HALLAZGOS, "CON_CEROS_NUEVOS"))
+            declarado = ceros.delta(ceros.censar(base, permitidos={"saldo"}),
+                                    ceros.censar(head, permitidos={"saldo"}))
+            self.assertEqual(ceros.salida_delta(declarado), (ceros.RC_OK, "SIN_CEROS_NUEVOS"))
+
     def test_mover_una_linea_no_es_un_cero_nuevo(self):
         """The identity is the class --file, key, shape--, not the line: a refactor is not a defect."""
         with tempfile.TemporaryDirectory() as caja:
