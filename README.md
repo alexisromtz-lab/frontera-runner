@@ -318,9 +318,13 @@ It has no dependencies and no assumption about where it is imported from: instal
 3.11 environment it runs from `/` under `env -i`, and the census of a foreign tree reproduces byte
 for byte the digest produced from inside this repository.
 
+<!-- INDICE: frontera-runner · publicado 0.2.0 · medido 2026-11-28 · https://pypi.org/pypi/frontera-runner/json -->
+
 The index carries `0.2.0`, the version whose upload succeeded. `0.2.2` is not there yet — the
 publisher for this repository is still unregistered — so the shortest paths that work today need
-neither a clone nor the index:
+neither a clone nor the index. The comment above is not decoration: it is the dated measurement a
+test reads, and no command in this file may resolve through the index while the index serves
+something older than the manifest.
 
 ```bash
 # the wheel attached to the release, built from a clean export of the tag
@@ -476,7 +480,7 @@ the audit's own checkout, the ratchet's own checkout) saved 0–8 %.
 
 ## Tests
 
-Standard library only, eighty-three tests, four fake instruments written to a temporary `--raiz` so
+Standard library only, ninety-seven tests, four fake instruments written to a temporary `--raiz` so
 the subprocess boundary is exercised rather than mocked:
 
 ```
@@ -502,6 +506,15 @@ parse is `HUECO_DE_MEDICION` and a tree with no Python at all is `SIN_SUPERFICIE
 census is falsified four ways: by a file that writes a zero in front of it, by a legitimate zero
 named in the call, by a zero one directory down that a top-level walk would miss, and by two
 copies of one tree at two depths having to publish one identical object.
+
+This file has a reader too. `test_readme_comandos.py` cotes every tag, every wheel and every binary
+the README cites against the manifest and against the repository's own tags; forbids any invocation
+that resolves through the package index while the index serves something other than the version
+whose dated measurement is declared in the README; and checks that the number of tests published in
+this section is the number the loader discovers. Its falsifier mutates the text five ways — a bare
+index install, an index install with no dated anchor, a stale tag, a wheel that is not the PEP 427
+name, an inflated count — and requires five reds. The remote half is opt-in, `FRONTERA_VERIFICAR_EXTERNO=1`,
+because a test that reaches the network in every run changes its verdict outside this tree.
 
 ## Boundaries
 
