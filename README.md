@@ -311,8 +311,23 @@ It has no dependencies and no assumption about where it is imported from: instal
 3.11 environment it runs from `/` under `env -i`, and the census of a foreign tree reproduces byte
 for byte the digest produced from inside this repository.
 
+The whole act — checkout with full history, the interpreter, the install, the base tree as a
+worktree, the invocation — is published as a reusable workflow. Adoption is one reference:
+
 ```yaml
 # .github/workflows/ceros.yml — pin the tag, not a branch
+on: [pull_request]
+jobs:
+  ceros:
+    uses: alexisromtz-lab/frontera-runner/.github/workflows/reusable-ceros.yml@v0.2.0
+    with:
+      excluir: "bench,tests"      # optional: declared scope, not a waiver
+```
+
+There is nothing to copy, so there is nothing that can silently diverge from the version that was
+tested. If you would rather own every step, the same act spelled out is five lines of YAML:
+
+```yaml
 on: [pull_request]
 jobs:
   ceros:
@@ -320,7 +335,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@v0.1.0"
+      - run: python -m pip install --quiet "git+https://github.com/alexisromtz-lab/frontera-runner@v0.2.0"
       - run: git worktree add --detach /tmp/base "${{ github.event.pull_request.base.sha }}"
       - run: ceros-implicitos --base /tmp/base .
 ```
@@ -333,9 +348,11 @@ says so out loud, which is not the same as excusing by name.
 
 ### Measured on somebody else's repository
 
-The gate runs, on Ubuntu, in a repository that is not this one:
-[fiber-ast-lint](https://github.com/alexisromtz-lab/fiber-ast-lint) adopted it with a single file
-and no change to its own `ci.yml`.
+Two repositories that are not this one run the gate on every pull request, both through the one-line
+reference and without touching their governed `ci.yml`:
+[fiber-ast-lint](https://github.com/alexisromtz-lab/fiber-ast-lint) (declared scope `bench,tests`)
+and [protocol-core](https://github.com/alexisromtz-lab/protocol-core) (no scope at all — its five
+pre-existing zeros subtract themselves).
 
 Green on a clean pull request — `SIN_CEROS_NUEVOS`, RC 0, `nuevos 0`, `permanecen 2` (two call
 tallies that predate the branch and subtract themselves):
@@ -346,7 +363,14 @@ that repository's checks stayed green:
 `CON_CEROS_NUEVOS`, RC 1, `nuevos 1`, and the finding named by file, key, shape and line:
 [runs/46106593465](https://github.com/alexisromtz-lab/fiber-ast-lint/actions/runs/46106593465).
 
-A green that never turns red has not shown that it measures, so both directions are published.
+Those two runs are the five-step form. The reusable workflow was falsified the same way rather than
+assumed equivalent: the one-line PR went green reporting `permanecen 2` (it subtracted a real base,
+it did not skip the delta), and a probe through the same one line went red with
+`nuevos 1` and the offending row:
+[runs/46120591144](https://github.com/alexisromtz-lab/fiber-ast-lint/actions/runs/46120591144).
+
+A green that never turns red has not shown that it measures, so both directions are published — for
+the copy and for the reference.
 
 ## The age partition travels with the audit row
 
