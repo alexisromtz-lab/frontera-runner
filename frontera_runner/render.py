@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from .runner import APLICABLE, NO_APLICABLE, NO_EJECUTADO, NO_MEDIDO
-from .recibo import salida_global
+from .recibo import lectura, salida_global
 
 #: The hard limit GitHub applies to a check output / check run text.
 TOPE = 65_536
@@ -148,6 +148,24 @@ def _identidades(titulo: str, claves: list[str]) -> list[str]:
     return lineas
 
 
+def _parrafo(fila: Mapping) -> str | None:
+    """The note's own paragraph, read off the catalogue instead of branched on here.
+
+    A paragraph about a note belongs to the note, so it lives in `recibo.NOTAS` and this function
+    only formats it: a note added there arrives explained without anyone remembering to add a
+    branch here. A paragraph about a *count* is a different thing -- `hallazgos_de_base_perdidos`
+    and `hallazgos_de_head_sin_base` stay keyed by their field, because the field can be missing
+    while the note is not, and a paragraph that printed "`None` hallazgo(s)" would be worse than
+    no paragraph at all.
+    """
+    if not fila["nota"]:
+        return None
+    detalle = lectura(fila["nota"])["detalle"]
+    if not detalle:
+        return None
+    return detalle.format(nuevos=len(fila["nuevos"]), resueltos=len(fila["resueltos"]))
+
+
 def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
     """The one comment a pull request gets: what base said, what head says, and the verdict."""
     resumen = delta["resumen"]
@@ -185,13 +203,9 @@ def markdown_diff(delta: Mapping, tope: int = TOPE) -> str:
             bloque.append(f"- la medición de base nombraba "
                           f"`{fila['hallazgos_de_base_perdidos']}` hallazgo(s) que head ya no mide: "
                           "una pérdida de medición no es una resolución")
-        if fila["nota"] == "MEDICION_NO_HECHA":
-            bloque.append("- uno de los dos lados no respondió -- agotamiento, caída o salida "
-                          "ilegible: un hueco no es una ausencia, y no es verde")
-        if fila["nota"] == "SUPERFICIE_NUEVA":
-            bloque.append(f"- base no tenía superficie que medir y head la trae: "
-                          f"`{len(fila['nuevos'])}` hallazgo(s) sobre superficie que este cambio "
-                          "crea, contados como regresión")
+        parrafo = _parrafo(fila)
+        if parrafo:
+            bloque.append(parrafo)
         if fila.get("hallazgos_de_head_sin_base") is not None:
             bloque.append(f"- base no medía este instrumento; head declara "
                           f"`{fila['hallazgos_de_head_sin_base']}` hallazgo(s) sin base contra la "

@@ -250,11 +250,14 @@ nobody, and a delta whose only row carried it came out `0 SIN_REGRESION` while a
 timing out; the summary built for an unreadable receipt was a hand-written list that had already
 lagged the real one by a field.
 
-`recibo.NOTAS` is now the only place that pair lives. A note carries its counter, its exit code and
-its precedence, `comparar` builds the summary by walking that table, and `salida_de_comparacion`
-reads the code off it. `_nota()` refuses to write a note with no row, so a seventh note cannot be
-born without a reader; the test that walks the nine state pairs plus the two one-sided notes only
-witnesses what the mechanism already enforces.
+`recibo.NOTAS` is now the only place those live. A note carries its counter, its exit code, its
+precedence and the paragraph the pull-request comment shows; `comparar` builds the summary by
+walking that table, and `salida_de_comparacion` reads the code off it. `_nota()` refuses to write a
+note with no row, so a seventh note cannot be born without a reader, and `validar_notas()` refuses a
+row that forgot a column or invented one — at import, not at read time. `render` no longer compares
+a note against a literal: it asks the table for the paragraph, which is why an eighth note arrives
+explained. The tests that walk the nine state pairs and the whole catalogue only witness what the
+mechanism already enforces.
 
 ## The age partition travels with the audit row
 
